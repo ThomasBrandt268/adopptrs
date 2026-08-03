@@ -114,6 +114,16 @@ Afterwards, the file `SolarArrayPolygons.json` has to be converted to the [VGG I
 python3 python/dataset.py --output products/json/california.json --path resources/california/
 ```
 
+## État du fork (2026-08-03)
+
+**Corrigé** — Le géoportail wallon a décommissionné son service WMTS (`supportedExtensions = WMSServer` seul sur les millésimes 2018-2024, `GetCapabilities` WMTS → HTTP 400). Portage vers WMS dans [`python/wms.py`](python/wms.py), qui fige les constantes du `TileMatrix` `"15"` (CRS, échelle, taille de tuile) relevées sur un [instantané archivé](https://web.archive.org/web/20211024033138/https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2018/MapServer/WMTS/1.0.0/WMTSCapabilities.xml) des capabilities WMTS d'origine (`python/wmts.py` conservé, marqué déprécié). Corrigés également : les incompatibilités Python 3.11+ (`TabError` d'indentation mixte dans `models.py`, `random.sample` sur une vue de dictionnaire dans `dataset.py`) et un `ModuleNotFoundError` dans `misc/download.py` (import cassé quand le script est lancé depuis `python/`, comme documenté ci-dessus). L'alignement du nouveau quadrillage a été vérifié visuellement contre les 661 annotations de 2020 ([`python/tests/check_alignment.py`](python/tests/check_alignment.py)), puis confirmé à l'échelle des 661 tuiles (aucune tuile blanche détectée sur le téléchargement complet).
+
+**État actuel** — Les 661 tuiles annotées de [`via_liege_city.json`](resources/walonmap/via_liege_city.json) se téléchargent en ~3 min 38 s via `misc/download.py`. Aucun modèle entraîné n'est disponible dans ce fork (`products/` est gitignoré, aucun `.pth` republié en amont) : l'entraînement nécessite un GPU, indisponible pour l'instant.
+
+**Bug connu, non corrigé** — `SegNet`/`MultiTaskSegNet` (profondeur par défaut) : la formule `128 * (2 ** i)` dans `SegNet.__init__` fait doubler les canaux du bottleneck à 256 au lieu de 128, ce qui provoque `RuntimeError: Shape of indices should match shape of input` dans `max_unpool2d` (indices sauvegardés pour 128 canaux, appliqués à un tenseur de 256 — reproduit sur les deux classes, `MultiTaskSegNet` héritant du même `forward`). Non corrigé car ce n'est pas le modèle retenu par le rapport ([`latex/main.pdf`](latex/main.pdf)) — *Multi-Task U-Net* est utilisé pour WalOnMap.
+
+**Où reprendre** — Ordre du pipeline : entraînement californien → fine-tuning Liège → inférence WalOnMap → agrégation (§Reproductibilité ci-dessus). Mesures déjà faites : latence WMS ~119 ms médiane (40 requêtes, sans dégradation) ; la Wallonie représente environ 3,7 M de tuiles au niveau de zoom utilisé, ce qui rend un balayage exhaustif coûteux — des pistes de filtrage spatial préalable (couches d'occupation du sol type `HABITAT/TISSU_URBANISE`) sont explorées dans [`python/exploration/`](python/exploration/), non intégrées au pipeline ADOPPTRS.
+
 [walonmap]: https://geoportail.wallonie.be/walonmap
 [duke-dataset]: https://energy.duke.edu/content/distributed-solar-pv-array-location-and-extent-data-set-remote-sensing-object-identification
 [via]: http://www.robots.ox.ac.uk/~vgg/software/via/
