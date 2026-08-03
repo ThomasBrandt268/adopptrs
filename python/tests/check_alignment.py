@@ -14,11 +14,17 @@ Usage
     conda activate adopptrs
     cd python
     python tests/check_alignment.py
+    python tests/check_alignment.py --path ../products/liege/
+
+Avec --path, les tuiles deja telechargees localement (misc/download.py)
+sont utilisees telles quelles (pas de reencodage JPEG) ; repli sur le
+WMS pour toute tuile absente du dossier local.
 
 Produit check_<row>_<col>.jpg (dans le repertoire courant) pour chaque
 tuile testee.
 """
 
+import argparse
 import json
 import os
 import random
@@ -65,6 +71,10 @@ def parse_name(imagename):
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Valide l\'alignement du portage WMTS -> WMS')
+    parser.add_argument('--path', default=None, help='dossier de tuiles locales (ex. ../products/liege/) ; repli sur le WMS si absent')
+    args = parser.parse_args()
+
     if not os.path.exists(VIA_PATH):
         sys.exit('Introuvable : ' + VIA_PATH)
 
@@ -86,8 +96,15 @@ def main():
     for name, polys in sample:
         row, col = parse_name(name)
 
+        local_file = os.path.join(args.path, name) if args.path else None
+
         try:
-            img = Image.open(wm.get_tile(row, col)).convert('RGB')
+            if local_file is not None and os.path.exists(local_file):
+                img = Image.open(local_file).convert('RGB')
+                source = 'local'
+            else:
+                img = Image.open(wm.get_tile(row, col)).convert('RGB')
+                source = 'WMS'
         except Exception as e:
             print('%-24s ECHEC : %s' % (name, e))
             continue
@@ -99,7 +116,7 @@ def main():
 
         out = 'check_%d_%d.jpg' % (row, col)
         img.save(out)
-        print('%-24s %d polygone(s) -> %s' % (name, len(polys), out))
+        print('%-24s %d polygone(s) [%s] -> %s' % (name, len(polys), source, out))
 
     print()
     print('Ouvre les fichiers check_*.jpg :')
