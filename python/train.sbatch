@@ -23,7 +23,9 @@
 #SBATCH --partition=a5000
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
+#SBATCH --mem=16G
+# 16 Go = ~2,4x le pic mesure (6,6 Go, job 3896764, jeu californien complet).
+# Demander moins fait aussi passer le job plus vite dans la file.
 #SBATCH --time=12:00:00
 #SBATCH --output=/home/%u/adopptrs/products/logs/%j.log
 #SBATCH --export=ALL
@@ -70,6 +72,11 @@ CSV=$HOME/adopptrs/products/csv/$NAME.csv
 
 source "$HOME/anaconda3/etc/profile.d/conda.sh"
 conda activate adopptrs
+
+# Sans cela, Python bufferise sa sortie des qu'elle est redirigee vers un
+# fichier : le log reste muet pendant des minutes et donne l'impression que
+# le job est fige, alors qu'il travaille.
+export PYTHONUNBUFFERED=1
 
 cd "$HOME/adopptrs/python"
 mkdir -p "$MODELS" "$(dirname "$CSV")"
