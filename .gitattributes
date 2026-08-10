@@ -1,2 +1,7 @@
 *.tex linguist-vendored
 *.ipynb linguist-vendored
+
+# Les scripts destines au cluster doivent garder des fins de ligne Unix :
+# un CRLF y provoque un "bad interpreter: /usr/bin/env bash^M" peu lisible.
+*.sbatch text eol=lf
+*.sh text eol=lf
