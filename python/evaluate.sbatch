@@ -22,12 +22,14 @@
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
-# L'evaluation est bien plus courte qu'un entrainement : un seul passage
-# sur un cinquieme du jeu, sans retropropagation. Compter moins d'une heure.
-# Elle est d'ailleurs surtout limitee par le CPU (decodage TIFF, morphologie
-# OpenCV sur 21 seuils), d'ou l'interet de la lancer sur une partition libre
-# plutot que d'attendre le meilleur GPU : sbatch --partition=1080ti ...
-#SBATCH --time=02:00:00
+# 2 min 45 s mesurees sur A5000 (job 3896887, fold 0, 7481 crops annonces
+# dont seuls ceux contenant un panneau sont notes). C'est sans commune
+# mesure avec un entrainement : un seul passage, sans retropropagation.
+# 30 min laissent une marge large et font passer le job tout de suite.
+# Le gros du temps est CPU (decodage TIFF, morphologie OpenCV sur 21
+# seuils) : inutile d'attendre le meilleur GPU, sbatch --partition=1080ti
+# fait aussi bien.
+#SBATCH --time=00:30:00
 #SBATCH --output=/home/%u/adopptrs/products/logs/%j.log
 #SBATCH --export=ALL
 

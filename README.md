@@ -116,7 +116,7 @@ FOLD=1 sbatch evaluate.sbatch            # un autre fold
 EPOCH=10 sbatch evaluate.sbatch          # un checkpoint intermédiaire
 ```
 
-Un passage sans rétropropagation sur un cinquième du jeu : moins d'une heure, et surtout limité par le CPU (décodage TIFF, morphologie OpenCV sur 21 seuils). Quand `a5000` est prise, `sbatch --partition=1080ti evaluate.sbatch` ne coûte presque rien de plus.
+Un passage sans rétropropagation sur un cinquième du jeu : **2 min 45 s** mesurées sur A5000, l'essentiel étant du CPU (décodage TIFF, morphologie OpenCV sur 21 seuils). Quand `a5000` est prise, `sbatch --partition=1080ti evaluate.sbatch` ne coûte presque rien de plus.
 
 La sortie brute d'`evaluate.py` — deux matrices 21 × 5 — est enregistrée dans `products/eval/`, puis relue par [`misc/compare_report.py`](python/misc/compare_report.py), qui la met en regard des chiffres publiés :
 
@@ -240,7 +240,20 @@ Soit environ **3 h 45 pour 20 époques** sur A5000. À l'échelle 2 (celle du mo
 
 Étape en cours : reproduire l'évaluation du rapport (`K=5 FOLD=0`, puis `evaluate.py` sur le fold 0). Comparer ces chiffres à ceux de [`latex/main.pdf`](latex/main.pdf) est le seul contrôle qui vérifie que le passage à `torch` 2.x / NumPy 2.x / OpenCV 5 n'a rien altéré numériquement — `tests/smoke.py` prouve que le code s'exécute, pas qu'il apprend aussi bien. Vient ensuite le modèle de production (`SCALE=2`, `-k 0`), puis le fine-tuning sur Liège.
 
-L'entraînement correspondant est fait : job `3896799` sur `1080ti`, 20 époques en 4 h 44, perte d'entraînement finale 0,347, checkpoint `multiunet_0_020.pth`. Reste à lancer `evaluate.sbatch` (cf. §Évaluer un modèle) et à lire son verdict.
+**Reproduction confirmée (2026-08-10)** — Entraînement job `3896799` (`1080ti`, 20 époques en 4 h 44, perte finale 0,347), évaluation job `3896887` (`a5000`, 2 min 45 s). Fold 0, *Multi-Task U-Net* :
+
+| | rapport | reproduction |
+| --- | --- | --- |
+| AP détection | 0,829 | **0,842** |
+| AP segmentation | 0,896 | **0,903** |
+| F1 détection maximal | 0,828 | **0,836** |
+| F1 segmentation maximal | 0,894 | **0,901** |
+
+Les quatre métriques tombent légèrement **au-dessus** du rapport, très en deçà de l'écart entre folds (l'AP de détection va de 0,829 à 0,919 selon le fold). `torch` 2.x, NumPy 2.x et OpenCV 5 n'ont donc rien altéré de mesurable : le réseau apprend aussi bien qu'en 2020.
+
+**Le seuil de décision, en revanche, a bougé.** À qualité égale, ce réseau-ci est bien plus polarisé : au seuil 0,5 il affiche une précision de 0,964 pour un rappel de 0,725, là où le rapport lisait 0,754 / 0,839. Toute la courbe est décalée le long de l'axe des seuils, et le F1 de détection est maximal vers `1e-3` (0,836) et non plus à 0,5 (0,827). C'est attendu — la graine n'est fixée que pour le découpage en folds, pas pour l'augmentation ni pour cuDNN, si bien que deux entraînements ne convergent pas vers le même minimum — mais ça ne se voit que si l'on regarde la courbe entière plutôt que les seules AP.
+
+Conséquence pratique : le `-threshold` de [`walonmap.py`](python/walonmap.py) (0,5 par défaut) n'est **pas** transposable d'un entraînement à l'autre. Il doit être recalibré sur le modèle qui sert effectivement à l'inférence, en arbitrant entre le nombre d'installations trouvées (rappel de détection) et le biais de surface (MRE pixel-wise, minimal vers 0,5), puisque `area` alimente l'estimation de capacité en aval.
 
 Les données ne sont pas dans le dépôt : `resources/california/` (45 Go, 601 images) et `products/liege/` sont gitignorés. Sur le cluster, les images californiennes doivent vivre sur `/scratch` — 601 fichiers relus à chaque époque, c'est exactement l'accès aléatoire que `/home` ne doit pas subir.
 

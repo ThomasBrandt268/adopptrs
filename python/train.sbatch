@@ -100,8 +100,12 @@ test -f "$VIA" || { echo "ERREUR : $VIA introuvable"; exit 1; }
 # temps atteinte, noeud redemarre...). Relancer le meme sbatch repart alors
 # du dernier checkpoint au lieu de tout recalculer.
 
+# Le motif exige exactement trois chiffres avant .pth, sinon "multiunet_*"
+# ramasserait aussi "multiunet_0_020.pth" -- le nom du modele de production
+# (K=0) est un prefixe de celui des folds (K=5), et la reprise concluait a
+# tort que les 20 epoques etaient deja faites.
 last=0
-for f in "$MODELS/${NAME}"_*.pth; do
+for f in "$MODELS/${NAME}"_[0-9][0-9][0-9].pth; do
     [ -e "$f" ] || continue
     n=$(basename "$f" .pth)
     n=$((10#${n##*_}))  # 10# : "008" est decimal, pas octal
