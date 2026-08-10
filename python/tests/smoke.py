@@ -198,16 +198,18 @@ def run(net=False, data=True):
     def _():
         import cv2
         import numpy as np
-        from summarize import parse
-        # Rectangle tourne de 30 deg : la convention d'angle de minAreaRect a
-        # change entre OpenCV 4.2 et 4.5, et elle pilote l'azimut du CSV final.
-        angle_rad = np.deg2rad(30)
-        rotation = np.array([[np.cos(angle_rad), -np.sin(angle_rad)],
-                             [np.sin(angle_rad), np.cos(angle_rad)]])
+        from summarize import parse, orientation
+        # Rectangle deux fois plus long que large, faitage est-ouest :
+        # la pente regarde plein sud. orientation() part des coins du
+        # rectangle et non de l'angle de minAreaRect, dont la convention
+        # a change entre OpenCV 4.2 et 4.5 -- le cas complet (24 azimuts,
+        # cas limites) est dans tests/check_azimuth.py.
         corners = np.array([[-10., -5.], [-10., 5.], [10., 5.], [10., -5.]])
-        _, _, angle = cv2.minAreaRect((corners @ rotation.T + 50).astype(np.float32))
-        azimuth = 180 + angle if angle > -45 else 270 + angle
-        assert abs(azimuth - 210) < 1e-3, 'azimut={} (attendu 210)'.format(azimuth)
+        azimuth, elongation = orientation(
+            cv2.boxPoints(cv2.minAreaRect(corners.astype(np.float32)))
+        )
+        assert abs(azimuth - 180) < 1e-3, 'azimut={} (attendu 180)'.format(azimuth)
+        assert abs(elongation - 2) < 1e-3, 'elongation={} (attendu 2)'.format(elongation)
         return 'parse={} azimut={:.2f}'.format(parse('609288_533063.jpg'), azimuth)
 
     # --- WMS ----------------------------------------------------------------
