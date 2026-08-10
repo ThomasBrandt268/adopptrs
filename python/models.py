@@ -84,9 +84,12 @@ class SegNet(nn.Module):
 
         # Uphill
         for up in self.ups:
+            # The convolution comes first: max-unpooling requires the input to
+            # have exactly as many channels as the saved indices, and the last
+            # downhill block doubled them without a matching maxpool.
+            x = up(x)
             x = self.upsample(x, indexes.pop())
             x = x[:, :, :shapes[-1][0], :shapes.pop()[1]]
-            x = up(x)
 
         return self.head(x)
 

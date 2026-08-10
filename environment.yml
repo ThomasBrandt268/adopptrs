@@ -1,19 +1,22 @@
+# ADOPPTRS - environnement conda (poste de travail, CPU)
+#
+#     conda env create -f environment.yml
+#     conda activate adopptrs
+#
+# Les paquets scientifiques sont installes par pip plutot que par conda :
+# les roues PyPI de torch, opencv et pyproj sont plus a jour et evitent les
+# conflits de solveur entre les canaux conda-forge et pytorch.
+#
+# Cet environnement est CPU-only. Pour le cluster GPU, cf. la note
+# "Cluster GPU" du README : la roue doit venir de l'index cu126.
+
 name: adopptrs
+
 channels:
-  - pytorch
-  - defaults
+  - conda-forge
+
 dependencies:
-  - jupyter=1.0.0
-  - numpy=1.18.1
-  - pip=20.0.2
-  - python=3.8.2
-  - pytorch=1.4.0
-  - scipy=1.4.1
+  - python=3.12
+  - pip
   - pip:
-    - matplotlib==3.2.1
-    - opencv-python==4.2.0.32
-    - owslib==0.19.2
-    - pandas==1.0.3
-    - pillow==7.0.0
-    - torchsummary==1.5.1
-    - torchvision==0.5.0
+    - -r requirements.txt

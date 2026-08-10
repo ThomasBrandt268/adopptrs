@@ -1,11 +1,35 @@
-jupyter==1.0.0
-matplotlib==3.2.1
-numpy==1.18.2
-opencv-python==4.2.0.32
-OWSLib==0.19.2
-pandas==1.0.3
-Pillow==7.0.0
-scipy==1.4.1
-torch==1.4.0
+# ADOPPTRS - dependances Python
+#
+# Installation locale (CPU) :
+#     pip install -r requirements.txt
+#
+# Installation sur un cluster GPU : voir la note "Cluster GPU" du README.
+# La roue torch par defaut de PyPI est CPU-only sous Windows et CUDA sous
+# Linux ; pour cibler une version precise de CUDA, passer par l'index
+# PyTorch (--index-url https://download.pytorch.org/whl/cu126).
+
+# --- Coeur du pipeline (scripts de python/) --------------------------------
+
+torch>=2.6,<3           # 2.6 = plus ancienne version publiee sur l'index cu126
+torchvision>=0.21,<1
+numpy>=2.0,<3
+scipy>=1.13,<2          # distance_transform_edt (criterions.py)
+opencv-python>=4.10,<6
+pillow>=10.4,<13
+pyproj>=3.6,<4          # projections Lambert 72 <-> WGS84 (wms.py)
+requests>=2.32,<3       # requetes GetMap WMS (wms.py)
+
+# --- Notebooks (notebooks/) ------------------------------------------------
+
+jupyter>=1.1,<2
+matplotlib>=3.9,<4
+pandas>=2.2,<4
 torchsummary==1.5.1
-torchvision==0.5.0
+
+# --- Optionnel -------------------------------------------------------------
+#
+# owslib n'est requis que par python/wmts.py, conserve pour reference mais
+# non fonctionnel : le geoportail wallon a decommissionne son service WMTS
+# (cf. python/wms.py). Ne pas installer sauf pour inspecter l'ancien code.
+#
+# owslib>=0.31,<1

@@ -11,7 +11,7 @@ PyTorch loss functions and metrics
 import torch
 import torch.nn as nn
 
-from scipy.ndimage.morphology import distance_transform_edt as dt
+from scipy.ndimage import distance_transform_edt as dt
 
 ###########
 # Classes #

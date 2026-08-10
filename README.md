@@ -23,9 +23,9 @@ If you wish to run the scripts or the [Jupyter](https://jupyter.org/) notebook(s
 To do so safely, one should create a new environment :
 
 ```bash
-virtualenv ~/adopptrs -p python3
+python3 -m venv ~/adopptrs
 source ~/adopptrs/bin/activate
-pip3 install -r requirements.txt -y
+pip install -r requirements.txt
 ```
 
 or with the `conda` package manager
@@ -34,6 +34,42 @@ or with the `conda` package manager
 conda env create -f environment.yml
 conda activate adopptrs
 ```
+
+Then check the installation :
+
+```bash
+cd python
+python tests/smoke.py         # add --net for a real WMS request
+```
+
+#### Cluster GPU
+
+Le choix de la roue `torch` est contraint par le GPU : PyTorch ne compile plus toutes les architectures dans toutes ses roues, et une architecture absente ne se manifeste qu'au premier calcul, par un `no kernel image is available for execution on the device`.
+
+| Build | Architectures compilées | GPU couverts |
+| --- | --- | --- |
+| `cu126` | 5.0 ; 6.0 ; 7.0 ; 7.5 ; 8.0 ; 8.6 ; 9.0 | Pascal, **Volta**, **Turing**, Ampere, Hopper |
+| `cu128` / `cu129` | 7.5 ; 8.0 ; 8.6 ; 9.0 ; 10.0 ; 12.0 | Turing et plus récent |
+| `cu13x` | Turing et plus récent | Turing et plus récent |
+
+Pour un cluster équipé de GTX 1080 Ti (`sm_61`), Tesla V100 (`sm_70`) et RTX 2080 Ti / Quadro RTX 6000 (`sm_75`), **seule la build `cu126` couvre l'ensemble des partitions** :
+
+```bash
+# 1. torch et torchvision depuis l'index PyTorch, qui seul distribue les roues CUDA
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+
+# 2. le reste depuis PyPI ; torch est déjà satisfait, pip ne le réinstalle pas
+pip install -r requirements.txt
+
+# 3. vérification avant de réserver un GPU pour de bon
+cd python && python tests/smoke.py --no-data
+```
+
+> L'ordre importe : `--index-url` **remplace** PyPI au lieu de s'y ajouter, et l'index PyTorch ne distribue ni `opencv-python`, ni `pyproj`, ni `matplotlib`. Les deux commandes doivent donc rester séparées.
+>
+> À l'étape 3, `tests/smoke.py` compare `torch.cuda.get_device_capability()` à `torch.cuda.get_arch_list()` et signale explicitement une architecture manquante, avant que le problème ne coûte un job.
+
+Les partitions `tesla` (V100), `quadro` (Quadro RTX 6000) et `2080ti` disposent de *Tensor Cores*, contrairement à `1080ti` : elles sont les seules à pouvoir bénéficier de l'entraînement en précision mixte (`torch.amp`), non implémenté à ce jour dans [`train.py`](python/train.py).
 
 ### Networks
 
@@ -114,15 +150,19 @@ Afterwards, the file `SolarArrayPolygons.json` has to be converted to the [VGG I
 python3 python/dataset.py --output products/json/california.json --path resources/california/
 ```
 
-## État du fork (2026-08-03)
+## État du fork (2026-08-10)
 
-**Corrigé** — Le géoportail wallon a décommissionné son service WMTS (`supportedExtensions = WMSServer` seul sur les millésimes 2018-2024, `GetCapabilities` WMTS → HTTP 400). Portage vers WMS dans [`python/wms.py`](python/wms.py), qui fige les constantes du `TileMatrix` `"15"` (CRS, échelle, taille de tuile) relevées sur un [instantané archivé](https://web.archive.org/web/20211024033138/https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2018/MapServer/WMTS/1.0.0/WMTSCapabilities.xml) des capabilities WMTS d'origine (`python/wmts.py` conservé, marqué déprécié). Corrigés également : les incompatibilités Python 3.11+ (`TabError` d'indentation mixte dans `models.py`, `random.sample` sur une vue de dictionnaire dans `dataset.py`) et un `ModuleNotFoundError` dans `misc/download.py` (import cassé quand le script est lancé depuis `python/`, comme documenté ci-dessus). L'alignement du nouveau quadrillage a été vérifié visuellement contre les 661 annotations de 2020 ([`python/tests/check_alignment.py`](python/tests/check_alignment.py)), puis confirmé à l'échelle des 661 tuiles (aucune tuile blanche détectée sur le téléchargement complet).
+**Portage WMTS → WMS (2026-08-03)** — Le géoportail wallon a décommissionné son service WMTS (`supportedExtensions = WMSServer` seul sur les millésimes 2018-2024, `GetCapabilities` WMTS → HTTP 400). Portage vers WMS dans [`python/wms.py`](python/wms.py), qui fige les constantes du `TileMatrix` `"15"` (CRS, échelle, taille de tuile) relevées sur un [instantané archivé](https://web.archive.org/web/20211024033138/https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE/ORTHO_2018/MapServer/WMTS/1.0.0/WMTSCapabilities.xml) des capabilities WMTS d'origine (`python/wmts.py` conservé, marqué déprécié). Corrigés également : les incompatibilités Python 3.11+ (`TabError` d'indentation mixte dans `models.py`, `random.sample` sur une vue de dictionnaire dans `dataset.py`) et un `ModuleNotFoundError` dans `misc/download.py` (import cassé quand le script est lancé depuis `python/`, comme documenté ci-dessus). L'alignement du nouveau quadrillage a été vérifié visuellement contre les 661 annotations de 2020 ([`python/tests/check_alignment.py`](python/tests/check_alignment.py)), puis confirmé à l'échelle des 661 tuiles (aucune tuile blanche détectée sur le téléchargement complet).
 
-**État actuel** — Les 661 tuiles annotées de [`via_liege_city.json`](resources/walonmap/via_liege_city.json) se téléchargent en ~3 min 38 s via `misc/download.py`. Aucun modèle entraîné n'est disponible dans ce fork (`products/` est gitignoré, aucun `.pth` republié en amont) : l'entraînement nécessite un GPU, indisponible pour l'instant.
+**Environnement modernisé (2026-08-10)** — L'environnement d'origine (Python 3.8, `torch` 1.4, 2020) était en fin de vie et surtout plafonné à CUDA 10.1, donc inutilisable sur les GPU d'un cluster. Il a été remplacé par Python 3.12 / `torch` 2.x, et [`requirements.txt`](requirements.txt) comme [`environment.yml`](environment.yml) ont été réécrits en conséquence. Le portage n'a demandé aucune adaptation du code applicatif : le pipeline a été validé à l'identique sur les deux stacks via [`python/tests/smoke.py`](python/tests/smoke.py). Les points de rupture silencieux ont été vérifiés un à un — en particulier la convention d'angle de `cv2.minAreaRect`, qui a changé en OpenCV 4.5 et pilote le calcul d'azimut de [`summarize.py`](python/summarize.py) : angle et azimut restent identiques entre OpenCV 4.2 et 5.0 (une assertion de non-régression garde ce point dans `smoke.py`).
 
-**Bug connu, non corrigé** — `SegNet`/`MultiTaskSegNet` (profondeur par défaut) : la formule `128 * (2 ** i)` dans `SegNet.__init__` fait doubler les canaux du bottleneck à 256 au lieu de 128, ce qui provoque `RuntimeError: Shape of indices should match shape of input` dans `max_unpool2d` (indices sauvegardés pour 128 canaux, appliqués à un tenseur de 256 — reproduit sur les deux classes, `MultiTaskSegNet` héritant du même `forward`). Non corrigé car ce n'est pas le modèle retenu par le rapport ([`latex/main.pdf`](latex/main.pdf)) — *Multi-Task U-Net* est utilisé pour WalOnMap.
+**`SegNet`/`MultiTaskSegNet` corrigé (2026-08-10)** — Le dernier bloc descendant double les canaux (256) sans `maxpool` correspondant, alors que `MaxUnpool2d` exige que l'entrée ait exactement autant de canaux que les indices sauvegardés (128) : d'où le `RuntimeError: Shape of indices should match shape of input`. Le correctif applique la convolution **avant** le désempilement plutôt qu'après, dans `SegNet.forward` — la convolution ramène alors les canaux au bon compte. Validé sur les profondeurs 1 à 3, en tailles paires et impaires (chemin `ceil_mode`), et sur `MultiTaskSegNet` en `train` comme en `eval`. Ce n'est pas le modèle retenu par le rapport ([`latex/main.pdf`](latex/main.pdf)) — *Multi-Task U-Net* reste utilisé pour WalOnMap — mais les quatre architectures sont désormais fonctionnelles.
 
-**Où reprendre** — Ordre du pipeline : entraînement californien → fine-tuning Liège → inférence WalOnMap → agrégation (§Reproductibilité ci-dessus). Mesures déjà faites : latence WMS ~119 ms médiane (40 requêtes, sans dégradation) ; la Wallonie représente environ 3,7 M de tuiles au niveau de zoom utilisé, ce qui rend un balayage exhaustif coûteux — des pistes de filtrage spatial préalable (couches d'occupation du sol type `HABITAT/TISSU_URBANISE`) sont explorées dans [`python/exploration/`](python/exploration/), non intégrées au pipeline ADOPPTRS.
+**État actuel** — Les 661 tuiles annotées de [`via_liege_city.json`](resources/walonmap/via_liege_city.json) se téléchargent en ~3 min 38 s via `misc/download.py`. Aucun modèle entraîné n'est disponible dans ce fork (`products/` est gitignoré, aucun `.pth` republié en amont) : l'entraînement nécessite un GPU, indisponible pour l'instant. Mesure de référence CPU (poste de travail, `MultiTaskUNet`, mode `-special`) : ~20 s par tuile 512×512 en passe avant + arrière, soit de l'ordre de 37 h pour les 10 époques de fine-tuning Liège — l'entraînement californien, bien plus lourd, reste hors de portée sans GPU.
+
+**Où reprendre** — Ordre du pipeline : entraînement californien → fine-tuning Liège → inférence WalOnMap → agrégation (§Reproductibilité ci-dessus). Le blocage restant est matériel et non plus logiciel : la chaîne complète (`train_epoch` → `.pth` → inférence → `summarize`) a été exécutée bout-en-bout sur la stack modernisée. Prochaine étape : obtenir un accès GPU, puis vérifier la roue `torch` avec `python tests/smoke.py --no-data` (cf. §Cluster GPU) avant de lancer le moindre job long. Le jeu de données californien doit être re-téléchargé (`resources/california/` est gitignoré).
+
+Mesures déjà faites : latence WMS ~119 ms médiane (40 requêtes, sans dégradation) ; la Wallonie représente environ 3,7 M de tuiles au niveau de zoom utilisé, ce qui rend un balayage exhaustif coûteux — des pistes de filtrage spatial préalable (couches d'occupation du sol type `HABITAT/TISSU_URBANISE`) sont explorées dans [`python/exploration/`](python/exploration/), non intégrées au pipeline ADOPPTRS.
 
 [walonmap]: https://geoportail.wallonie.be/walonmap
 [duke-dataset]: https://energy.duke.edu/content/distributed-solar-pv-array-location-and-extent-data-set-remote-sensing-object-identification
