@@ -67,15 +67,37 @@ def run(net=False, data=True):
     def _():
         import torch
         if not torch.cuda.is_available():
-            return 'indisponible (CPU) -- normal sur un poste de travail'
-        # Une roue torch ne contient que certaines architectures : si celle du
-        # GPU n'y est pas, l'erreur ne surgit qu'au premier calcul.
+            return 'indisponible -- pas de GPU sur cette machine'
+
+        # Une roue torch ne contient les noyaux que de certaines architectures,
+        # et une architecture manquante ne se manifeste qu'au premier calcul.
+        # La compatibilite binaire de CUDA joue toutefois a l'interieur d'une
+        # meme generation majeure : un noyau sm_60 s'execute sur un GPU sm_61,
+        # mais l'inverse est faux. Comparer par egalite stricte donne donc de
+        # fausses alertes (constate sur les GTX 1080 Ti du cluster Alan).
         name = torch.cuda.get_device_name(0)
         major, minor = torch.cuda.get_device_capability(0)
         archs = torch.cuda.get_arch_list()
         got = 'sm_{}{}'.format(major, minor)
-        status = 'OK' if got in archs else 'ABSENTE DE LA ROUE -> reinstaller torch'
-        torch.zeros(8, device='cuda').sum().item()  # force l'init d'un kernel
+
+        cubins = []
+        for arch in archs:
+            if arch.startswith('sm_') and arch[3:].isdigit():
+                cubins.append(int(arch[3:]))
+
+        if major * 10 + minor in cubins:
+            status = 'OK'
+        elif any(c // 10 == major and c % 10 <= minor for c in cubins):
+            status = 'OK par compatibilite binaire (pas de noyau {} exact)'.format(got)
+        elif any(arch.startswith('compute_') for arch in archs):
+            status = 'OK via PTX (compilation au premier lancement, plus lent)'
+        else:
+            status = 'AUCUN NOYAU COMPATIBLE -> changer de roue torch'
+
+        # Preuve par le calcul : leve "no kernel image is available" si le GPU
+        # n'est reellement pas servi par cette roue.
+        torch.zeros(8, device='cuda').sum().item()
+
         return '{} ({}) | cuda={} | compilee pour {} -> {}'.format(
             name, got, torch.version.cuda, ' '.join(archs), status)
 
