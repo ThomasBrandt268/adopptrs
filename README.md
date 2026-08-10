@@ -104,6 +104,32 @@ SCALE=2 sbatch --time=20:00:00 train.sbatch   # modèle de production (cf. §Rep
 
 Suivi : `squeue --user $USER`, `tail -f ~/adopptrs/products/logs/<jobid>.log`, `sacct -j <jobid>` une fois terminé.
 
+##### Évaluer un modèle
+
+[`python/evaluate.sbatch`](python/evaluate.sbatch) évalue le fold laissé de côté par `K=5`, puis compare les chiffres obtenus à ceux du rapport.
+
+```bash
+cd ~/adopptrs/python
+
+sbatch evaluate.sbatch                   # multiunet_0_020.pth sur le fold 0
+FOLD=1 sbatch evaluate.sbatch            # un autre fold
+EPOCH=10 sbatch evaluate.sbatch          # un checkpoint intermédiaire
+```
+
+Un passage sans rétropropagation sur un cinquième du jeu : moins d'une heure, et surtout limité par le CPU (décodage TIFF, morphologie OpenCV sur 21 seuils). Quand `a5000` est prise, `sbatch --partition=1080ti evaluate.sbatch` ne coûte presque rien de plus.
+
+La sortie brute d'`evaluate.py` — deux matrices 21 × 5 — est enregistrée dans `products/eval/`, puis relue par [`misc/compare_report.py`](python/misc/compare_report.py), qui la met en regard des chiffres publiés :
+
+```bash
+python misc/compare_report.py ../products/eval/multiunet_0_020.txt -m multiunet -f 0
+```
+
+Les tableaux de référence sont ceux de [`misc/hardcoded_plots.py`](python/misc/hardcoded_plots.py), qui sont précisément les sorties d'`evaluate.py` ayant produit les figures du rapport. Le script les relit avec `ast` plutôt que par un `import` — `hardcoded_plots.py` trace ses figures dès l'import et réclame matplotlib avec LaTeX.
+
+Deux retouches manuelles signalées par le N.B. d'`evaluate.py` sont réappliquées aux deux jeux de chiffres, faute de quoi la comparaison porterait sur des points aberrants : aux seuils très bas, la sortie contour-wise est une tache unique qui recouvre tout et « attrape » toutes les cibles (précision forcée à 0) ; aux seuils très hauts, sortie et cible sont vides et le rappel `0/0` vaut 1 par défaut (forcé à 0). Le script recalcule donc précision et rappel à partir des comptes bruts, identiquement des deux côtés.
+
+Il sort en `1` si l'écart d'AP dépasse la tolérance (`-tol`, 0,05 par défaut) : le job apparaît alors `FAILED` dans `sacct`, ce qui est le signal recherché. Repère utile : sur les cinq folds du rapport, l'AP de détection de *Multi-Task U-Net* s'étale de 0,829 (fold 0, le plus sévère) à 0,919.
+
 ### Networks
 
 The neural networks that have been implemented (cf. [`models.py`](python/models.py)) are [*U-Net*](https://arxiv.org/abs/1505.04597), [*SegNet*](https://arxiv.org/abs/1511.00561) and [*Multi-Task*](https://arxiv.org/abs/1709.05932) versions of them.
@@ -200,6 +226,7 @@ Mesures de référence pour `MultiTaskUNet` sur le jeu californien complet, à l
 | Échantillons par époque | 21 632 |
 | Époque sur RTX A5000 | 11 min 14 s |
 | Époque sur GTX 1080 Ti | 18 min 24 s (1,6×) |
+| Époque sur GTX 1080 Ti, `K=5` | 14 min 12 s (4/5 du jeu) |
 | Pic mémoire vive | 6,6 Go |
 | Taille d'un checkpoint | 120 Mo |
 
@@ -212,6 +239,8 @@ Soit environ **3 h 45 pour 20 époques** sur A5000. À l'échelle 2 (celle du mo
 **Où reprendre** — Ordre du pipeline : entraînement californien → fine-tuning Liège → inférence WalOnMap → agrégation (§Reproductibilité ci-dessus). La chaîne complète (`train_epoch` → `.pth` → inférence → `summarize`) a été exécutée bout-en-bout sur la stack modernisée, et l'entraînement tourne sur GPU.
 
 Étape en cours : reproduire l'évaluation du rapport (`K=5 FOLD=0`, puis `evaluate.py` sur le fold 0). Comparer ces chiffres à ceux de [`latex/main.pdf`](latex/main.pdf) est le seul contrôle qui vérifie que le passage à `torch` 2.x / NumPy 2.x / OpenCV 5 n'a rien altéré numériquement — `tests/smoke.py` prouve que le code s'exécute, pas qu'il apprend aussi bien. Vient ensuite le modèle de production (`SCALE=2`, `-k 0`), puis le fine-tuning sur Liège.
+
+L'entraînement correspondant est fait : job `3896799` sur `1080ti`, 20 époques en 4 h 44, perte d'entraînement finale 0,347, checkpoint `multiunet_0_020.pth`. Reste à lancer `evaluate.sbatch` (cf. §Évaluer un modèle) et à lire son verdict.
 
 Les données ne sont pas dans le dépôt : `resources/california/` (45 Go, 601 images) et `products/liege/` sont gitignorés. Sur le cluster, les images californiennes doivent vivre sur `/scratch` — 601 fichiers relus à chaque époque, c'est exactement l'accès aléatoire que `/home` ne doit pas subir.
 
