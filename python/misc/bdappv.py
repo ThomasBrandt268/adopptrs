@@ -51,6 +51,7 @@ Usage
 """
 
 import argparse
+import csv
 import os
 import sys
 
@@ -71,6 +72,17 @@ from wms import WMS
 
 GSD = {'google': 0.1, 'ign': 0.2}
 MIN_PIXELS = 12  # sous ce compte, le contour est du bruit d'annotation
+
+# La colonne `departement` de metadata.csv code aussi les pays voisins, sur
+# trois chiffres. Releve le 2026-08-11 par les noms de villes :
+REGIONS = {
+    'wallonie': ('200', '202', '205', '206', '208', '209'),
+    'belgique': ('200', '201', '202', '203', '204', '205', '206', '207', '208', '209', '210'),
+    'liege': ('206',),
+    # Nord de la France : ardoise, brique, pentes fortes -- le bati le plus
+    # proche de la Wallonie parmi les departements francais.
+    'nord': ('02', '08', '51', '54', '55', '57', '59', '60', '62', '80'),
+}
 
 
 def polygons(mask, scale_x, scale_y, minimum=MIN_PIXELS):
@@ -107,6 +119,9 @@ def main():
     parser.add_argument('-d', '--destination', default=None, help='dossier des images reechantillonnees')
     parser.add_argument('-o', '--output', default=None, help='fichier VIA produit')
     parser.add_argument('--gsd', type=float, default=None, help='resolution cible en m/px (defaut : celle de WalOnMap)')
+    parser.add_argument('--region', default=None,
+                        help='sous-ensemble geographique : %s, ou une liste de codes'
+                             % ', '.join(sorted(REGIONS)))
     parser.add_argument('--limit', type=int, default=0, help='ne traiter que les N premieres (0 = tout)')
     parser.add_argument('--check', default=False, action='store_true',
                         help='ecrit des vignettes de controle au lieu du jeu complet')
@@ -123,6 +138,35 @@ def main():
     scale = GSD[args.campaign] / target
 
     names = sorted(os.listdir(mask_dir))
+
+    # Filtre geographique. Le nom de fichier est l'`identifiant` de
+    # metadata.csv -- verifie : les 13 303 masques google y correspondent
+    # tous. `idInstallation` n'a, lui, aucune correspondance.
+    if args.region:
+        codes = REGIONS.get(args.region.lower())
+
+        if codes is None:
+            codes = tuple(c.strip() for c in args.region.split(','))
+
+        meta = os.path.join(args.source, 'metadata.csv')
+
+        if not os.path.exists(meta):
+            sys.exit('Introuvable : ' + meta)
+
+        with open(meta, encoding='utf-8') as f:
+            garder = {
+                r['identifiant'].strip() for r in csv.DictReader(f)
+                if r['departement'].strip() in codes
+            }
+
+        avant = len(names)
+        names = [n for n in names if os.path.splitext(n)[0] in garder]
+
+        print('region %s (%s) : %d masques sur %d' % (
+            args.region, ', '.join(codes), len(names), avant))
+
+        if not names:
+            sys.exit('Aucun masque dans cette region.')
 
     if args.limit:
         names = names[:args.limit]
