@@ -68,6 +68,7 @@ if __name__ == '__main__':
     import json
     import os
     import requests
+    import time
     import torch
 
     import via as VIA
@@ -90,14 +91,22 @@ if __name__ == '__main__':
     parser.add_argument('-t', '--tile', default='', help='tile prefix name')
     parser.add_argument('-threshold', type=float, default=.5, help='threshold')
     parser.add_argument('-min', type=int, default=256, help='minimal number of pixels')
+    parser.add_argument('-vintage', default=None, help='millesime, ex. ORTHO_2022_ETE (defaut ORTHO_2018)')
+    parser.add_argument('-delay', type=float, default=.2,
+                        help='pause entre deux requetes, en secondes (0 pour enchainer)')
     args = parser.parse_args()
+
+    # Millesime : la geometrie des tuiles est calculee ici et ne depend pas
+    # du service, donc un meme (row, col) rend le meme rectangle au sol quel
+    # que soit le millesime. Seule l'URL change.
+    wm = WMS(vintage=args.vintage) if args.vintage else _WALONMAP
 
     # Contour
     with open(args.polygon, 'r') as f:
         geojson = json.load(f)
 
     contour = list(map(
-        lambda x: _WALONMAP.wgs_to_tile(x[1], x[0]),
+        lambda x: wm.wgs_to_tile(x[1], x[0]),
         geojson['coordinates'][0]
     ))
 
@@ -141,9 +150,16 @@ if __name__ == '__main__':
                 args.limit -= 1
 
             try:
-                tile = Image.open(_WALONMAP.get_tile(row, col))
+                tile = Image.open(wm.get_tile(row, col))
             except requests.exceptions.RequestException:
                 continue
+
+            # Le geoportail est un service public : enchainer un millier de
+            # requetes sans respirer expose a un etranglement en cours de
+            # route, et le except ci-dessus les avalerait en silence. 0,2 s
+            # est l'espacement retenu par misc/download.py.
+            if args.delay > 0:
+                time.sleep(args.delay)
 
             inpt = to_tensor(tile).unsqueeze(0)
             inpt = inpt.to(device)
