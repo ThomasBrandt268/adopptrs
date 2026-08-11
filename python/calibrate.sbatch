@@ -26,6 +26,7 @@
 #     sbatch calibrate.sbatch                        # multiunet_020.pth
 #     NET=.../multiunet_x2_030.pth sbatch calibrate.sbatch
 #     K=5 FOLD=0 sbatch calibrate.sbatch             # sur le seul fold retenu
+#     OPENING=1 sbatch calibrate.sbatch              # avec l'ouverture 5x5
 #
 # K=1 (defaut) prend les 661 tuiles : c'est le bon reglage tant que le
 # reseau n'a pas ete affine sur Liege. Des qu'il l'a ete, passer K=5 FOLD=0
@@ -55,6 +56,14 @@ MODEL=${MODEL:-unet}
 SCALE=${SCALE:-1}
 MIN=${MIN:-256}
 
+# OPENING=0 : chaine de walonmap.py, sans ouverture morphologique. Mesure
+# du 2026-08-11 sur le fold 0 (multiunet_liege_030, seuil 1e-4) : sans
+# ouverture, TP 108 / FP 14 / FN 30 contre 104 / 12 / 33 avec. L'ouverture
+# supprime 2 faux positifs et 4 vraies detections -- elle coute plus
+# qu'elle ne rapporte. C'est donc OPENING=0 qui decrit la production, et
+# c'est sur cette courbe-la que le seuil doit etre lu.
+OPENING=${OPENING:-0}
+
 # K=1 FOLD=0 : i % 1 == 0 pour tout i, donc le jeu entier. C'est le seul
 # moyen de tout prendre, K=0 rendant un jeu de validation vide.
 K=${K:-1}
@@ -70,7 +79,19 @@ DATA=${DATA:-$HOME/adopptrs/products/liege}
 VIA=${VIA:-$HOME/adopptrs/resources/walonmap/via_liege_city.json}
 
 EVAL=$HOME/adopptrs/products/eval
-OUT=$EVAL/$(basename "$NET" .pth)_liege.txt
+
+# Deux noms distincts : les deux chaines donnent deux courbes, et ecraser
+# l'une par l'autre interdirait de les comparer.
+if (( OPENING )); then
+    OUT=$EVAL/$(basename "$NET" .pth)_liege_ouverture.txt
+else
+    OUT=$EVAL/$(basename "$NET" .pth)_liege.txt
+fi
+
+EXTRA=()
+if (( ! OPENING )); then
+    EXTRA+=(-no-opening)
+fi
 
 ################
 # Environnement #
@@ -86,7 +107,7 @@ mkdir -p "$EVAL"
 
 echo "=== job ${SLURM_JOB_ID:-?} sur $(hostname) | $(date) ==="
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
-echo "reseau=$NET echelle=$SCALE min=$MIN"
+echo "reseau=$NET echelle=$SCALE min=$MIN ouverture=$OPENING"
 echo "tuiles=$DATA (fold $FOLD sur K=$K, tuiles vides comptees)"
 echo
 
@@ -107,6 +128,7 @@ python evaluate.py \
     -min "$MIN" \
     -scale "$SCALE" \
     -negatives \
+    ${EXTRA[@]+"${EXTRA[@]}"} \
     | tee "$OUT"
 
 echo

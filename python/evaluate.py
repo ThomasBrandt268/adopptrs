@@ -78,6 +78,7 @@ if __name__ == '__main__':
 	parser.add_argument('-min', type=int, default=64, help='minimal number of pixels')
 	parser.add_argument('-scale', type=int, default=1, help='scale of the images, as in train.py')
 	parser.add_argument('-negatives', default=False, action='store_true', help='score the tiles without any annotation')
+	parser.add_argument('-no-opening', dest='opening', default=True, action='store_false', help='skip the 5x5 opening, as walonmap.py does')
 	args = parser.parse_args()
 
 	# Output file
@@ -177,17 +178,26 @@ if __name__ == '__main__':
 				## Output's contours
 				thresh = (outpt > t).float()
 
-				opening = cv2.morphologyEx( # opening removes little dots
-					np.array(to_pil(thresh)),
-					cv2.MORPH_OPEN,
-					np.ones((5, 5), dtype=np.uint8)
-				)
+				mask = np.array(to_pil(thresh))
 
-				thresh = to_tensor(Image.fromarray(opening))
+				# walonmap.py, lui, n'ouvre pas. Calibrer avec l'ouverture
+				# et produire sans, c'est mesurer une chaine et en lancer
+				# une autre : le seuil et le biais de surface lus ici ne
+				# vaudraient alors pas pour le CSV publie. L'aller-retour
+				# PIL reste dans les deux branches pour que seule la
+				# morphologie les separe.
+				if args.opening:
+					mask = cv2.morphologyEx( # opening removes little dots
+						mask,
+						cv2.MORPH_OPEN,
+						np.ones((5, 5), dtype=np.uint8)
+					)
+
+				thresh = to_tensor(Image.fromarray(mask))
 
 				output_ctns = [
 					[bounding(c), surface(c), False]
-					for c in to_contours(opening)
+					for c in to_contours(mask)
 				]
 
 				inter = target * thresh
