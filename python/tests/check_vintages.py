@@ -49,9 +49,16 @@ que misc/download.py -vintage ... -d ../products/vintages/<millesime> les
 depose. Une tuile absente d'un millesime est dessinee en gris plutot
 qu'ignoree : sa disparition est une information.
 
-Produit une planche par tuile, millesimes cote a cote, triees par ecart
-decroissant du nombre de detections -- les tuiles ou quelque chose a
-change viennent en premier.
+Selection des planches
+----------------------
+Pour chaque millesime, les --extremes pires et meilleures tuiles au sens
+de FP + FN, reunies. Une tuile retenue au titre d'un millesime est
+dessinee pour tous : c'est tout l'interet, on voit le meme toit reussi a
+une date et manque a une autre.
+
+Le nom de fichier porte le motif le plus fort (pire_2024_03_...), donc
+les fautives se groupent en tete du dossier ; la console donne la liste
+complete des raisons pour lesquelles chaque tuile a ete retenue.
 """
 
 import argparse
@@ -134,7 +141,10 @@ def main():
     parser.add_argument('-f', '--fold', type=int, default=0, help='fold mis de cote')
     parser.add_argument('-threshold', type=float, default=1e-4, help='seuil de decision')
     parser.add_argument('-min', type=int, default=256, help='surface minimale, comme walonmap.py')
-    parser.add_argument('-l', '--limit', type=int, default=25, help='nombre de planches dessinees')
+    parser.add_argument('--extremes', type=int, default=10,
+                        help='par millesime, nombre de pires et de meilleures tuiles retenues')
+    parser.add_argument('-l', '--limit', type=int, default=80,
+                        help='plafond du nombre de planches ecrites, apres selection')
     # Defaut sans ouverture : c'est la chaine que walonmap.py execute, et
     # celle sur laquelle le seuil 1e-4 a ete calibre.
     parser.add_argument('-opening', dest='opening', default=False, action='store_true',
@@ -181,18 +191,21 @@ def main():
 
     totals = {vintage: [0, 0, 0, 0] for vintage in args.vintages}  # TP, FP, FN, detections
     absent = {vintage: 0 for vintage in args.vintages}
-    sheets = []
+
+    # Premiere passe : on ne retient que les comptes et les contours. Garder
+    # les images de 133 tuiles sur six millesimes tiendrait 600 Mo en
+    # memoire pour n'en dessiner qu'une quarantaine ; elles seront relues
+    # au moment du dessin, ce qui ne coute qu'un decodage JPEG.
+    scores = {}
 
     for key in keys:
-        panels = []
-        counts = []
+        scores[key] = {}
 
         for vintage in args.vintages:
             filename = os.path.join(tiles, vintage, key)
 
             if not os.path.exists(filename):
                 absent[vintage] += 1
-                panels.append(('missing', vintage))
                 continue
 
             image = Image.open(filename).convert('RGB')
@@ -210,32 +223,53 @@ def main():
             for i, value in enumerate((tp, fp, fn, len(kept))):
                 totals[vintage][i] += value
 
-            counts.append(len(kept))
-            panels.append((image, polygons, output_ctns, vintage, tp, fp, fn))
+            scores[key][vintage] = (tp, fp, fn, len(kept), output_ctns)
 
-        # Les tuiles ou le compte bouge d'un millesime a l'autre sont
-        # celles qui portent une information : croissance reelle, ou
-        # instabilite du detecteur face a l'image.
-        spread = (max(counts) - min(counts)) if counts else 0
+    # Selection : les extremes de chaque millesime, pris sur FP + FN. Une
+    # tuile peut etre retenue pour plusieurs raisons a la fois -- c'est
+    # meme le cas interessant, celui d'un toit que le detecteur reussit a
+    # une date et rate a une autre.
+    reasons = {}
 
-        sheets.append((spread, key, panels))
+    for vintage in args.vintages:
+        scored = [
+            (scores[key][vintage][1] + scores[key][vintage][2], key)
+            for key in keys if vintage in scores[key]
+        ]
+        scored.sort()
 
-    sheets.sort(key=lambda s: -s[0])
+        label = vintage.replace('ORTHO_', '')
 
-    print('{:<24} {:>7}   {}'.format('tuile', 'ecart', 'detections par millesime'))
+        for rank, (defects, key) in enumerate(reversed(scored[-args.extremes:]), 1):
+            reasons.setdefault(key, []).append(('pire', label, rank, defects))
 
-    for spread, key, panels in sheets[:args.limit]:
+        for rank, (defects, key) in enumerate(scored[:args.extremes], 1):
+            reasons.setdefault(key, []).append(('bonne', label, rank, defects))
+
+    # Les fautives d'abord, et parmi elles celles qui le sont pour le plus
+    # de millesimes.
+    def priority(key):
+        worst = [r for r in reasons[key] if r[0] == 'pire']
+        return (0 if worst else 1, -len(worst), min((r[2] for r in worst), default=0))
+
+    selected = sorted(reasons, key=priority)[:args.limit]
+
+    print('{:<24} {:>6}   {}'.format('tuile', 'motif', 'retenue pour'))
+
+    for key in selected:
         row, col = parse_name(key)
         drawn = []
 
-        for item in panels:
-            if item[0] == 'missing':
-                drawn.append(missing((512, 512), item[1] + '  --'))
+        for vintage in args.vintages:
+            if vintage not in scores[key]:
+                drawn.append(missing((512, 512), vintage.replace('ORTHO_', '') + '  --'))
                 continue
 
-            image, polygons, contours, vintage, tp, fp, fn = item
+            tp, fp, fn, _, contours = scores[key][vintage]
+            image = Image.open(os.path.join(tiles, vintage, key)).convert('RGB')
+
             title = '{}   TP {} FP {} FN {}'.format(vintage.replace('ORTHO_', ''), tp, fp, fn)
-            drawn.append(panel(image, polygons, contours, args.min, title))
+            drawn.append(panel(image, via[key], contours, args.min, title))
 
         width = sum(p.width for p in drawn) + GAP * (len(drawn) - 1)
         height = max(p.height for p in drawn)
@@ -247,10 +281,22 @@ def main():
             sheet.paste(p, (offset, 0))
             offset += p.width + GAP
 
-        out = '{:02d}_{}_{}.jpg'.format(spread, row, col)
+        # Nom : le motif le plus fort, pour que les fautives se groupent en
+        # tete du dossier. La liste complete part dans la console.
+        worst = sorted((r for r in reasons[key] if r[0] == 'pire'), key=lambda r: r[2])
+        best = sorted((r for r in reasons[key] if r[0] == 'bonne'), key=lambda r: r[2])
+
+        kind, label, rank, _ = (worst or best)[0]
+
+        out = '{}_{}_{:02d}_{}_{}.jpg'.format(kind, label, rank, row, col)
         sheet.save(os.path.join(destination, out), quality=90)
 
-        print('{:<24} {:>7}   {}'.format(key, spread, out))
+        detail = ', '.join(
+            '{} {} ({} defaut{})'.format(r[0], r[1], r[3], 's' if r[3] > 1 else '')
+            for r in worst + best
+        )
+
+        print('{:<24} {:>6}   {}'.format(key, kind, detail))
 
     print()
     print('{:<20} {:>6} {:>6} {:>6} {:>12}'.format(
