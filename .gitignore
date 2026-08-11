@@ -5,7 +5,7 @@ __pycache__/
 
 # Data
 
-resources
+resources/california
 products/
 
 # WMS validation tiles (regenerable, see python/tests/check_alignment.py)

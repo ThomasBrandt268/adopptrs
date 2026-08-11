@@ -50,6 +50,7 @@ import os
 import random
 import sys
 
+import cv2
 import numpy as np
 import torch
 
@@ -149,6 +150,170 @@ def sheet(cells, numbers, columns=COLUMNS):
     return canvas
 
 
+BANDES = (10.0, 30.0)  # bornes des strates de surface, en m2
+
+
+def strate(area):
+    """Bande de taille d'une detection. Trois suffisent.
+
+    Le tirage est stratifie parce que la precision qui nous interesse est
+    celle **en surface**, pas en compte : les detections sous 10 m2 font un
+    tiers de l'effectif et un neuvieme de la surface. Un tirage uniforme
+    depenserait l'essentiel du jugement humain sur ce qui ne pese rien.
+    """
+    if area < BANDES[0]:
+        return 0
+    if area < BANDES[1]:
+        return 1
+    return 2
+
+
+def sample_from_via(args):
+    """Echantillonne les detections d'une sortie de walonmap.py.
+
+    Ici il n'y a aucune annotation : la commune n'a jamais ete annotee, et
+    c'est justement ce qu'on veut mesurer. Toutes les detections sont donc
+    a juger, et on en tire un echantillon plutot que de toutes les regarder.
+
+    Les tuiles ne sont pas conservees par walonmap.py, donc on les redemande
+    au geoportail -- seulement celles qui portent une detection tiree, soit
+    quelques dizaines.
+    """
+    from wms import WMS
+
+    if not os.path.exists(args.via):
+        sys.exit('Introuvable : ' + args.via)
+
+    os.makedirs(args.destination, exist_ok=True)
+
+    via = VIA.load(args.via)
+    span = WMS().pixel_span
+
+    # Toutes les detections, avec leur surface en m2. cv2.contourArea et
+    # non evaluate.surface : cette derniere ajoute la moitie du perimetre,
+    # negligeable en millimetres mais pas en pixels.
+    detections = []
+
+    for key, polygons in via.items():
+        for polygon in polygons:
+            contour = np.array(polygon, dtype=np.int32).reshape(-1, 1, 2)
+            area = cv2.contourArea(contour) * (span ** 2)
+
+            if area > 0:
+                detections.append((key, contour, area))
+
+    if not detections:
+        sys.exit('Aucune detection dans ' + args.via)
+
+    # Tirage stratifie, a graine fixe pour que l'echantillon soit rejouable.
+    random.seed(args.seed)
+
+    par_strate = {0: [], 1: [], 2: []}
+    for d in detections:
+        par_strate[strate(d[2])].append(d)
+
+    quota = max(1, args.sample // 3)
+    tires = []
+    totaux = {}
+
+    for s in (0, 1, 2):
+        pop = par_strate[s]
+        pris = random.sample(pop, min(quota, len(pop))) if pop else []
+
+        totaux[s] = (len(pop), sum(d[2] for d in pop), len(pris))
+        tires.extend((s, d) for d in pris)
+
+    print('%d detections, %d tirees' % (len(detections), len(tires)))
+    print()
+    print('%-14s %8s %10s %8s' % ('strate', 'effectif', 'surface m2', 'tirees'))
+    for s, nom in enumerate(('< 10 m2', '10-30 m2', '> 30 m2')):
+        n, a, k = totaux[s]
+        print('%-14s %8d %10.0f %8d' % (nom, n, a, k))
+    print()
+
+    # Une seule requete par tuile, meme si elle porte plusieurs detections.
+    wm = WMS(vintage=args.vintage) if args.vintage else WMS()
+    cache = {}
+    rows = []
+    cells = []
+
+    for i, (s, (key, contour, area)) in enumerate(sorted(tires, key=lambda t: t[1][0]), 1):
+        if key not in cache:
+            row, col = parse_name(key)
+            try:
+                cache[key] = Image.open(wm.get_tile(row, col)).convert('RGB')
+            except Exception as e:
+                print('tuile %s : %s' % (key, str(e)[:80]))
+                cache[key] = None
+
+        image = cache[key]
+
+        if image is None:
+            continue
+
+        row, col = parse_name(key)
+
+        rows.append({
+            'id': len(rows) + 1,
+            'tuile': key,
+            'row': row,
+            'col': col,
+            'strate': s,
+            'surface': round(area, 2),
+            'verdict': '',
+        })
+
+        cells.append(vignette(image, contour))
+
+    ecrire(args, rows, cells, mode='echantillon', totaux=totaux)
+
+    return 0
+
+
+def ecrire(args, rows, cells, mode, totaux=None, comptes=None):
+    """Vignettes individuelles, planches, et les deux fichiers de suivi."""
+    for cell, entry in zip(cells, rows):
+        cell.save(os.path.join(
+            args.destination, '{:03d}_{}_{}.jpg'.format(entry['id'], entry['row'], entry['col'])
+        ), quality=92)
+
+    per_sheet = COLUMNS * ROWS
+
+    for start in range(0, len(cells), per_sheet):
+        chunk = cells[start:start + per_sheet]
+        numbers = [entry['id'] for entry in rows[start:start + per_sheet]]
+
+        page = start // per_sheet + 1
+        sheet(chunk, numbers).save(
+            os.path.join(args.destination, 'planche_{}.jpg'.format(page)), quality=92
+        )
+
+    with open(os.path.join(args.destination, 'verdicts.csv'), 'w', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+
+    with open(os.path.join(args.destination, 'comptes.csv'), 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['mode', 'source'])
+        writer.writerow([mode, args.vintage or 'ORTHO_2018'])
+
+        if mode == 'echantillon':
+            writer.writerow([])
+            writer.writerow(['strate', 'effectif', 'surface', 'tirees'])
+            for s in (0, 1, 2):
+                writer.writerow([s, *totaux[s]])
+        else:
+            writer.writerow([])
+            writer.writerow(['detections', 'appariees', 'sans_annotation'])
+            writer.writerow(comptes)
+
+    print('Planches : %s' % os.path.join(args.destination, 'planche_*.jpg'))
+    print()
+    print('Releve les numeros qui ne sont PAS des panneaux, puis :')
+    print('    python misc/adjudicate.py --score -d %s --false "3 7 12"' % args.destination)
+
+
 def extract(args):
     """Passe le modele, isole les detections sans annotation, les decoupe."""
     tiles = os.path.join(args.tiles, args.vintage)
@@ -224,45 +389,79 @@ def extract(args):
 
             cells.append(vignette(image, contour))
 
-    # Vignettes individuelles : pour les cas ou la planche ne suffit pas.
-    for cell, entry in zip(cells, rows):
-        cell.save(os.path.join(
-            args.destination, '{:03d}_{}_{}.jpg'.format(entry['id'], entry['row'], entry['col'])
-        ), quality=92)
-
-    per_sheet = COLUMNS * ROWS
-
-    for start in range(0, len(cells), per_sheet):
-        chunk = cells[start:start + per_sheet]
-        numbers = [entry['id'] for entry in rows[start:start + per_sheet]]
-
-        page = start // per_sheet + 1
-        sheet(chunk, numbers).save(
-            os.path.join(args.destination, 'planche_{}.jpg'.format(page)), quality=92
-        )
-
-    with open(os.path.join(args.destination, 'verdicts.csv'), 'w', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()) if rows else ['id'])
-        writer.writeheader()
-        writer.writerows(rows)
-
-    # Les comptes servent au calcul final ; les garder ici evite de
-    # refaire tourner le modele a l'etape de notation.
-    with open(os.path.join(args.destination, 'comptes.csv'), 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow(['millesime', 'detections', 'appariees', 'sans_annotation'])
-        writer.writerow([args.vintage, kept_total, matched_total, len(rows)])
-
     print('millesime          : {}'.format(args.vintage))
     print('detections totales : {}'.format(kept_total))
     print('  dont appariees   : {}'.format(matched_total))
     print('  sans annotation  : {}   <- a arbitrer'.format(len(rows)))
     print()
-    print('Planches : {}'.format(os.path.join(args.destination, 'planche_*.jpg')))
+
+    ecrire(args, rows, cells, mode='annotations',
+           comptes=[kept_total, matched_total, len(rows)])
+
+    return 0
+
+
+def score_echantillon(args, bloc, entries, wrong, path):
+    """Extrapole la precision d'un echantillon stratifie a la population.
+
+    Deux chiffres, et ils ne disent pas la meme chose. La precision **en
+    compte** repond a « quelle part des detections est fausse ». Celle **en
+    surface** repond a « quelle part de la surface annoncee est fausse » --
+    c'est elle qui entre dans la conversion en kWc, et elle seule.
+    """
+    noms = ('< 10 m2', '10-30 m2', '> 30 m2')
+
+    # bloc : [en-tetes], [mode, source], [en-tetes strates], puis 3 lignes
+    totaux = {int(r[0]): (int(r[1]), float(r[2]), int(r[3])) for r in bloc[3:6]}
+
+    print('%-11s %8s %10s %8s %7s %9s %9s' % (
+        'strate', 'effectif', 'surface', 'juges', 'faux', 'faux/cpt', 'faux/surf'))
+
+    faux_compte = faux_surface = 0.0
+    total_compte = total_surface = 0.0
+
+    for s in (0, 1, 2):
+        n_pop, a_pop, _ = totaux[s]
+        ech = [e for e in entries if int(e['strate']) == s]
+
+        if not ech:
+            continue
+
+        faux = [e for e in ech if int(e['id']) in wrong]
+
+        taux_c = len(faux) / len(ech)
+        aires = sum(float(e['surface']) for e in ech)
+        taux_a = sum(float(e['surface']) for e in faux) / aires if aires else 0.0
+
+        faux_compte += n_pop * taux_c
+        faux_surface += a_pop * taux_a
+        total_compte += n_pop
+        total_surface += a_pop
+
+        print('%-11s %8d %10.0f %8d %7d %9.2f %9.2f' % (
+            noms[s], n_pop, a_pop, len(ech), len(faux), taux_c, taux_a))
+
+    p_compte = 1 - faux_compte / total_compte if total_compte else float('nan')
+    p_surface = 1 - faux_surface / total_surface if total_surface else float('nan')
+
+    # Erreur type binomiale la plus defavorable, a l'effectif juge le plus
+    # petit : sert a rappeler qu'un echantillon de vingt ne rend pas trois
+    # decimales significatives.
+    effectifs = [len([e for e in entries if int(e['strate']) == s]) for s in (0, 1, 2)]
+    n_min = min([n for n in effectifs if n] or [1])
+    marge = 1.96 * (0.25 / n_min) ** 0.5
+
     print()
-    print('Parcours les planches et releve les numeros qui ne sont PAS des panneaux,')
-    print('puis :')
-    print('    python misc/adjudicate.py --score --false "3 7 12"')
+    print('PRECISION en compte  : %.2f' % p_compte)
+    print('PRECISION en surface : %.2f      <- celle qui compte pour les kWc' % p_surface)
+    print()
+    print('Marge indicative a 95 %%, au pire des cas : +/- %.2f par strate.' % marge)
+    print('Un echantillon de %d par strate ne justifie pas plus de deux decimales.' % n_min)
+    print()
+    print('Surface detectee reputee vraie : %.0f m2 sur %.0f' % (
+        total_surface - faux_surface, total_surface))
+    print()
+    print('Verdicts consignes dans %s' % path)
 
     return 0
 
@@ -277,11 +476,9 @@ def score(args):
             sys.exit('Introuvable : {} (lancer l\'extraction d\'abord)'.format(f))
 
     with open(counts, 'r') as f:
-        row = list(csv.DictReader(f))[0]
+        bloc = [r for r in csv.reader(f) if r]
 
-    vintage = row['millesime']
-    detections = int(row['detections'])
-    matched = int(row['appariees'])
+    mode, source = bloc[1][0], bloc[1][1]
 
     with open(path, 'r') as f:
         entries = list(csv.DictReader(f))
@@ -307,12 +504,19 @@ def score(args):
     false_alarms = len(wrong)
     new_panels = len(entries) - false_alarms
 
+    print('=' * 64)
+    print('Arbitrage -- {}'.format(source))
+    print('=' * 64)
+    print()
+
+    if mode == 'echantillon':
+        return score_echantillon(args, bloc, entries, wrong, path)
+
+    detections = int(bloc[3][0])
+    matched = int(bloc[3][1])
+
     precision = (detections - false_alarms) / detections if detections else float('nan')
 
-    print('=' * 60)
-    print('Arbitrage -- {}'.format(vintage))
-    print('=' * 60)
-    print()
     print('detections totales          : {}'.format(detections))
     print('  appariees a une annotation: {}   (justes par construction)'.format(matched))
     print('  panneaux non annotes en 2018: {}'.format(new_panels))
@@ -359,6 +563,11 @@ def main():
     parser.add_argument('-min', type=int, default=256, help='surface minimale, comme walonmap.py')
     parser.add_argument('-opening', dest='opening', default=False, action='store_true',
                         help="applique l'ouverture 5x5 d'evaluate.py")
+    parser.add_argument('--via', default=None,
+                        help='sortie de walonmap.py a echantillonner (mode sans annotations)')
+    parser.add_argument('--sample', type=int, default=60,
+                        help='taille de l\'echantillon, reparti en trois strates de taille')
+    parser.add_argument('--seed', type=int, default=0, help='graine du tirage')
     parser.add_argument('--score', default=False, action='store_true', help='calcule le resultat')
     parser.add_argument('--false', default=None,
                         help='numeros qui ne sont PAS des panneaux, entre guillemets')
@@ -369,8 +578,11 @@ def main():
     if args.score:
         return score(args)
 
+    if args.via:
+        return sample_from_via(args)
+
     if not args.network:
-        sys.exit('-n/--network est requis pour l\'extraction')
+        sys.exit('-n/--network est requis pour l\'extraction (ou --via pour echantillonner)')
 
     return extract(args)
 
