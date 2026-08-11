@@ -65,12 +65,34 @@ _TILE_HEIGHT = 512
 _MATRIX_WIDTH = 533986
 _MATRIX_HEIGHT = 611260
 
-_DEFAULT_WMS = (
+# Le geoportail expose un service par millesime, tous sous le meme motif.
+# La liste complete se lit sur
+# https://geoservices.wallonie.be/arcgis/rest/services/IMAGERIE?f=pjson
+# et va de ORTHO_1971 a ORTHO_2024 (relevee le 2026-08-11).
+_SERVICE_TEMPLATE = (
     'https://geoservices.wallonie.be/arcgis/services'
-    '/IMAGERIE/ORTHO_2018/MapServer/WMSServer'
+    '/IMAGERIE/{}/MapServer/WMSServer'
 )
+_DEFAULT_VINTAGE = 'ORTHO_2018'
+_DEFAULT_WMS = _SERVICE_TEMPLATE.format(_DEFAULT_VINTAGE)
 _DEFAULT_LAYER = '0'
 _DEFAULT_FORMAT = 'image/jpeg'
+
+
+def service_url(vintage):
+    """URL WMS d'un millesime, depuis son nom de service (ex. 'ORTHO_2024').
+
+    Changer de millesime ne change que cette URL : la geometrie des tuiles
+    est calculee ici, pas servie par le geoportail (cf. get_tile, qui
+    demande un GetMap sur une bbox au sol). Deux millesimes demandes au
+    meme (row, col) rendent donc exactement le meme rectangle de terrain,
+    au meme pas de pixel -- c'est ce qui rend leur comparaison directe.
+
+    Attention : identique ne veut pas dire equivalent. Un millesime dont
+    la resolution native est plus grossiere que nos 0,132 m/px sera
+    reechantillonne par le serveur, et l'image rendue sera molle.
+    """
+    return _SERVICE_TEMPLATE.format(vintage)
 
 
 class _Layer:
@@ -91,12 +113,23 @@ class WMS:
 
     def __init__(
         self,
-        wms=_DEFAULT_WMS,
+        wms=None,
         layer=_DEFAULT_LAYER,
         fmt=_DEFAULT_FORMAT,
         timeout=90,
         session=None,
+        vintage=None,
     ):
+        # WMS() reste ORTHO_2018 ; WMS(vintage='ORTHO_2024') suffit a
+        # changer de millesime. Les deux ensemble seraient ambigus, donc
+        # refuses plutot qu'arbitres en silence.
+        if wms is None:
+            self.vintage = vintage or _DEFAULT_VINTAGE
+            wms = service_url(self.vintage)
+        elif vintage is not None:
+            raise ValueError('wms et vintage sont exclusifs')
+        else:
+            self.vintage = None
         self.url = wms
         self.layer = _Layer(layer)
         self.fmt = fmt

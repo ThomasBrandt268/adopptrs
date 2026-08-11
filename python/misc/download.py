@@ -2,6 +2,14 @@
 
 """
 Download annotated WalOnMap tiles
+
+Un millesime au choix (-vintage) et, au besoin, un seul fold (-k / -f) :
+comparer plusieurs millesimes sur les memes tuiles demande de rapatrier
+la meme liste plusieurs fois, et la limiter au fold mis de cote divise la
+facture par cinq.
+
+    python misc/download.py -vintage ORTHO_2017 -k 5 -f 0 \\
+        -d ../products/vintages/ORTHO_2017
 """
 
 ###########
@@ -10,6 +18,7 @@ Download annotated WalOnMap tiles
 
 import argparse
 import os
+import random
 import sys
 import time
 
@@ -18,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import via as VIA
 
 from PIL import Image
-from walonmap import _WALONMAP as wm
+from wms import WMS
 from summarize import parse
 
 
@@ -39,15 +48,34 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Download images from WalOnMap')
     parser.add_argument('-d', '--destination', default='../products/liege/', help='destination of the tiles')
     parser.add_argument('-i', '--input', default='../resources/walonmap/via_liege_city.json', help='input VIA file')
+    parser.add_argument('-vintage', default=None, help='service du millesime (ex. ORTHO_2024) ; defaut ORTHO_2018')
+    parser.add_argument('-k', type=int, default=0, help='nombre de folds ; 0 pour tout telecharger')
+    parser.add_argument('-f', '--fold', type=int, default=0, help='fold a telecharger')
     args = parser.parse_args()
 
     # Destination
     os.makedirs(args.destination, exist_ok=True)
 
+    wm = WMS(vintage=args.vintage)
+
     # Download
     via = VIA.load(args.input)
-    names = list(via)
+
+    # Meme decoupage que evaluate.py et train.py : sans la meme graine sur
+    # les memes cles triees, le fold telecharge ne serait pas celui qui a
+    # ete mis de cote a l'entrainement.
+    names = sorted(list(via))
+
+    random.seed(0)
+    random.shuffle(names)
+
+    if args.k > 0:
+        names = [name for i, name in enumerate(names) if (i % args.k) == args.fold]
+
     total = len(names)
+
+    print('millesime {} | {} tuiles'.format(wm.vintage or wm.url, total))
+    print()
 
     blank = []
 
