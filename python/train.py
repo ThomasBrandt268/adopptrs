@@ -79,6 +79,14 @@ if __name__ == '__main__':
     parser.add_argument('-wdecay', type=float, default=1e-4, help='weight decay')
     parser.add_argument('-momentum', type=float, default=0.9, help='momentum of SGD')
     parser.add_argument('-special', default=False, action='store_true', help='special mode')
+    # ColorJitter fait varier luminosite, contraste et saturation mais pas
+    # la teinte. Or le mode d'echec documente du reseau est le panneau
+    # sombre sur toiture sombre : il s'appuie sur le contraste avec la
+    # couleur du toit, qui differe d'une region a l'autre. hue=0 reproduit
+    # exactement le comportement d'origine -- torchvision desactive alors
+    # la teinte au lieu de tirer un facteur nul, donc meme consommation
+    # d'aleatoire et resultats comparables a l'identique.
+    parser.add_argument('-hue', type=float, default=0., help='hue jitter (0 = comme avant)')
     args = parser.parse_args()
 
     # Output file
@@ -108,7 +116,7 @@ if __name__ == '__main__':
     else:
         trainset = VIADataset(train_via, args.path, shuffle=True, alt=1)
         trainset = Scale(trainset, args.scale) if args.scale > 1 else trainset
-        trainset = RandomTranspose(RandomFilter(ColorJitter(trainset)))
+        trainset = RandomTranspose(RandomFilter(ColorJitter(trainset, hue=args.hue)))
 
     trainset = ToTensor(trainset)
 

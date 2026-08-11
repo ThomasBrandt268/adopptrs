@@ -61,6 +61,12 @@ BATCH=${BATCH:-5}
 # nombreuses pour qu'on ait envie d'y ajouter du bruit.
 SPECIAL=${SPECIAL:-0}
 
+# HUE=0 reproduit le comportement d'origine. Une valeur non nulle fait
+# varier la teinte a l'augmentation, ce qui rend le reseau moins dependant
+# de la couleur des toits -- sans effet en mode SPECIAL, qui n'applique
+# aucune augmentation de couleur.
+HUE=${HUE:-0}
+
 # K=0  : entrainement sur la totalite du jeu (modele de production, celui
 #        applique a WalOnMap). evaluate.py n'a alors aucun jeu de validation.
 # K=5  : validation croisee, le fold FOLD est mis de cote pour evaluate.py.
@@ -161,6 +167,7 @@ while (( resume <= EPOCHS )); do
         -r "$resume" \
         -scale "$SCALE" \
         -batch "$BATCH" \
+        -hue "$HUE" \
         -i "$VIA" \
         -p "$DATA" \
         -d "$MODELS" \

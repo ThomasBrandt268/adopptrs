@@ -85,6 +85,20 @@ REGIONS = {
 }
 
 
+def code(valeur):
+    """Normalise un code de departement.
+
+    metadata.csv ecrit l'Aisne tantot '02' tantot '2' -- les deux formes
+    coexistent dans le fichier. Comparer les chaines telles quelles ferait
+    disparaitre en silence les departements a un chiffre, dont l'Aisne et
+    les Ardennes, les deux plus proches de la Wallonie. La Corse ('2A',
+    '2B') n'est pas numerique et reste comparee telle quelle.
+    """
+    valeur = valeur.strip()
+
+    return str(int(valeur)) if valeur.isdigit() else valeur.upper()
+
+
 def polygons(mask, scale_x, scale_y, minimum=MIN_PIXELS):
     """Contours exterieurs du masque, remis a l'echelle cible.
 
@@ -153,10 +167,12 @@ def main():
         if not os.path.exists(meta):
             sys.exit('Introuvable : ' + meta)
 
+        cherches = {code(c) for c in codes}
+
         with open(meta, encoding='utf-8') as f:
             garder = {
                 r['identifiant'].strip() for r in csv.DictReader(f)
-                if r['departement'].strip() in codes
+                if code(r['departement']) in cherches
             }
 
         avant = len(names)
