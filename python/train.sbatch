@@ -11,6 +11,18 @@
 #     K=5 FOLD=0 sbatch train.sbatch        # validation croisee, evaluable
 #     SCALE=2 sbatch train.sbatch           # modele de production (rapport)
 #
+# Fine-tuning sur les 661 tuiles annotees de Liege, 10 epoques de plus par
+# dessus les 20 californiennes (la reprise repart d'elle-meme de l'epoque
+# 21, elle lit le dernier checkpoint) :
+#
+#     EPOCHS=30 SCALE=2 BATCH=2 SPECIAL=1 NAME=multiunet \
+#       DATA=$HOME/adopptrs/products/liege \
+#       VIA=$HOME/adopptrs/resources/walonmap/via_liege_city.json \
+#       sbatch train.sbatch
+#
+# NAME est explicite : sans lui, K>0 le deriverait en multiunet_$FOLD et
+# ecraserait le modele californien du fold correspondant.
+#
 # Suivi :
 #     squeue --user $USER
 #     tail -f ~/adopptrs/products/logs/<jobid>.log
@@ -43,6 +55,12 @@ CHUNK=${CHUNK:-5}
 SCALE=${SCALE:-1}
 BATCH=${BATCH:-5}
 
+# SPECIAL=1 : le mode fine-tuning du rapport. Il coupe le decoupage en
+# vignettes et l'augmentation (sauf les transpositions) -- les tuiles de
+# Liege font deja 512 px, la taille d'entree du reseau, et sont trop peu
+# nombreuses pour qu'on ait envie d'y ajouter du bruit.
+SPECIAL=${SPECIAL:-0}
+
 # K=0  : entrainement sur la totalite du jeu (modele de production, celui
 #        applique a WalOnMap). evaluate.py n'a alors aucun jeu de validation.
 # K=5  : validation croisee, le fold FOLD est mis de cote pour evaluate.py.
@@ -65,6 +83,14 @@ VIA=${VIA:-$HOME/adopptrs/products/json/california.json}
 
 MODELS=$HOME/adopptrs/products/models
 CSV=$HOME/adopptrs/products/csv/$NAME.csv
+
+# Un if plutot qu'un `(( SPECIAL )) && ...` : sous set -e, un test faux en
+# fin de ligne fait sortir le script. Et ${EXTRA[@]+...} a l'appel, parce
+# que sous set -u un tableau vide n'est pas developpable tel quel.
+EXTRA=()
+if (( SPECIAL )); then
+    EXTRA+=(-special)
+fi
 
 ################
 # Environnement #
@@ -129,6 +155,7 @@ while (( resume <= EPOCHS )); do
 
     python train.py \
         -m "$MODEL" -multitask \
+        ${EXTRA[@]+"${EXTRA[@]}"} \
         -n "$NAME" \
         -e "$n" \
         -r "$resume" \

@@ -61,7 +61,7 @@ if __name__ == '__main__':
 
 	from PIL import Image
 
-	from dataset import VIADataset, ToTensor, to_pil, to_tensor, to_contours
+	from dataset import VIADataset, Scale, ToTensor, to_pil, to_tensor, to_contours
 	from models import UNet, SegNet, MultiTaskUNet, MultiTaskSegNet
 	from criterions import TP, TN, FP, FN
 
@@ -76,6 +76,8 @@ if __name__ == '__main__':
 	parser.add_argument('-o', '--output', default=None, help='standard output file') # should be improved to csv
 	parser.add_argument('-p', '--path', default='../resources/california/', help='path to resources')
 	parser.add_argument('-min', type=int, default=64, help='minimal number of pixels')
+	parser.add_argument('-scale', type=int, default=1, help='scale of the images, as in train.py')
+	parser.add_argument('-negatives', default=False, action='store_true', help='score the tiles without any annotation')
 	args = parser.parse_args()
 
 	# Output file
@@ -99,7 +101,17 @@ if __name__ == '__main__':
 	else:
 		valid_via = {}
 
-	validset = ToTensor(VIADataset(valid_via, args.path, size=512, full=True))
+	# Le reseau voit toujours des entrees de 512 px de cote. A l'echelle 1 ce
+	# sont des decoupes de 512 px ; a l'echelle 2 des decoupes de 256 px
+	# agrandies, exactement comme les fait train.py -scale 2. Evaluer un
+	# reseau entraine a l'echelle 2 sur des decoupes de 512 px natives lui
+	# presenterait des panneaux deux fois trop petits.
+	validset = VIADataset(valid_via, args.path, size=512 // args.scale, full=True)
+
+	if args.scale > 1:
+		validset = Scale(validset, args.scale)
+
+	validset = ToTensor(validset)
 
 	print('Validation size = {}'.format(len(validset)))
 
@@ -143,7 +155,13 @@ if __name__ == '__main__':
 
 	with torch.no_grad():
 		for inpt, target in validset:
-			if target.sum().item() < 1:
+			# Sans -negatives, une decoupe vide de toute annotation est
+			# ecartee : ses faux positifs ne sont jamais comptes. C'est la
+			# convention du rapport, a garder pour lui rester comparable,
+			# mais elle interdit de calibrer un seuil -- en production la
+			# tuile sans panneau est le cas majoritaire, et c'est la que le
+			# faux positif coute.
+			if target.sum().item() < 1 and not args.negatives:
 				continue
 
 			inpt = inpt.unsqueeze(0).to(device)
