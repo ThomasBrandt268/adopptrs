@@ -1,0 +1,10 @@
+# Documentation build only -- deliberately kept out of environment.yml,
+# which describes the training environment and has no reason to carry a
+# doc toolchain.
+#
+#     pip install -r docs/manual/requirements.txt
+#     cd docs/manual && sphinx-build -b html . _build/html
+
+sphinx>=7.0
+myst-parser>=2.0
+furo>=2024.1
