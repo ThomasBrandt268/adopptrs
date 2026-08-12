@@ -79,6 +79,12 @@ if __name__ == '__main__':
 	parser.add_argument('-scale', type=int, default=1, help='scale of the images, as in train.py')
 	parser.add_argument('-negatives', default=False, action='store_true', help='score the tiles without any annotation')
 	parser.add_argument('-no-opening', dest='opening', default=True, action='store_false', help='skip the 5x5 opening, as walonmap.py does')
+	# La grille par decades saute un fosse : entre 1e-5 et 1e-4, le titulaire
+	# passe de 61 a 14 faux positifs et de 0,893 a 0,783 de rappel. Deux
+	# reseaux dont les optimums tombent de part et d'autre du fosse n'y sont
+	# pas comparables, et interpoler ne tranche pas. D'ou cette option : on
+	# mesure la ou la grille par defaut ne regarde pas.
+	parser.add_argument('-thresholds', type=float, nargs='+', default=None, help='decision thresholds (default: the per-decade grid)')
 	args = parser.parse_args()
 
 	# Output file
@@ -141,11 +147,21 @@ if __name__ == '__main__':
 	model.load_state_dict(torch.load(args.network, map_location=device))
 
 	# Thresholds
-	thresholds = [0]
-	thresholds.extend(map(lambda x: 10 ** x, range(-9, 0))) # [1e-9, 1e-8, ...]
-	thresholds.append(0.5)
-	thresholds.extend(map(lambda x: 1 - 10 ** x, range(-1, -10, -1)))  # [1 - 1e-1, 1 - 1e-2, ...]
-	thresholds.append(1)
+	if args.thresholds is not None:
+		thresholds = sorted(set(args.thresholds))
+	else:
+		thresholds = [0]
+		thresholds.extend(map(lambda x: 10 ** x, range(-9, 0))) # [1e-9, 1e-8, ...]
+		thresholds.append(0.5)
+		thresholds.extend(map(lambda x: 1 - 10 ** x, range(-1, -10, -1)))  # [1 - 1e-1, 1 - 1e-2, ...]
+		thresholds.append(1)
+
+	# Ecrite avant les matrices, et sans double crochet : parse_output cherche
+	# '[[' a partir de « Contour wise », cette ligne-ci ne peut donc pas etre
+	# prise pour une matrice. C'est elle qui permet a threshold.py d'etiqueter
+	# les lignes au lieu de reconstruire la grille de memoire -- une sortie
+	# anterieure, qui ne la porte pas, reste lue comme avant.
+	print('Thresholds =', [float(t) for t in thresholds])
 
 	# TP, FP, FN
 	contour_wise = np.zeros((len(thresholds), 5))

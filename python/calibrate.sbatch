@@ -69,6 +69,13 @@ OPENING=${OPENING:-0}
 K=${K:-1}
 FOLD=${FOLD:-0}
 
+# Seuils explicites, separes par des espaces. Vide = la grille par decades.
+# Elle saute un fosse entre 1e-5 et 1e-4 -- 61 faux positifs contre 14 -- et
+# deux reseaux dont les optimums tombent de part et d'autre n'y sont pas
+# comparables. Les mesurer sur la meme grille fine les remet a rappel egal.
+#     THRESHOLDS="2e-5 3e-5 5e-5 7e-5" sbatch calibrate.sbatch
+THRESHOLDS=${THRESHOLDS:-}
+
 EPOCH=${EPOCH:-20}
 NAME=${NAME:-multiunet}
 
@@ -80,17 +87,25 @@ VIA=${VIA:-$HOME/adopptrs/resources/walonmap/via_liege_city.json}
 
 EVAL=$HOME/adopptrs/products/eval
 
-# Deux noms distincts : les deux chaines donnent deux courbes, et ecraser
+# Des noms distincts : chaque variante donne sa propre courbe, et ecraser
 # l'une par l'autre interdirait de les comparer.
+SUFFIX=''
 if (( OPENING )); then
-    OUT=$EVAL/$(basename "$NET" .pth)_liege_ouverture.txt
-else
-    OUT=$EVAL/$(basename "$NET" .pth)_liege.txt
+    SUFFIX+='_ouverture'
 fi
+if [[ -n $THRESHOLDS ]]; then
+    SUFFIX+='_fin'
+fi
+
+OUT=$EVAL/$(basename "$NET" .pth)_liege${SUFFIX}.txt
 
 EXTRA=()
 if (( ! OPENING )); then
     EXTRA+=(-no-opening)
+fi
+# Sans guillemets : la liste doit se decouper en autant d'arguments.
+if [[ -n $THRESHOLDS ]]; then
+    EXTRA+=(-thresholds $THRESHOLDS)
 fi
 
 ################
@@ -108,6 +123,7 @@ mkdir -p "$EVAL"
 echo "=== job ${SLURM_JOB_ID:-?} sur $(hostname) | $(date) ==="
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
 echo "reseau=$NET echelle=$SCALE min=$MIN ouverture=$OPENING"
+echo "seuils=${THRESHOLDS:-grille par decades}"
 echo "tuiles=$DATA (fold $FOLD sur K=$K, tuiles vides comptees)"
 echo
 

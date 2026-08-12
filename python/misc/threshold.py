@@ -36,7 +36,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from compare_report import parse_output, rates, thresholds
+from compare_report import parse_output, parse_thresholds, rates, thresholds
 
 
 def values():
@@ -44,6 +44,10 @@ def values():
 
     thresholds() rend des etiquettes lisibles ('1-1e-1') ; walonmap.py veut
     un flottant.
+
+    Ne sert plus que de repli : depuis son option -thresholds, evaluate.py
+    ecrit dans sa sortie la grille qu'il a reellement parcourue. Reconstruire
+    celle-ci de memoire etiquetterait de travers toute grille personnalisee.
     '''
     v = [0.0]
     v.extend(10.0 ** x for x in range(-9, 0))
@@ -91,7 +95,17 @@ def main():
     p, r, f1 = rates(contour, contour_wise=not args.raw)
     bias = surface_bias(pixel)
 
-    labels = thresholds()
+    grid = parse_thresholds(args.output)
+
+    if grid is None: # sortie anterieure a l'option -thresholds
+        grid, labels = values(), thresholds()
+    else:
+        labels = ['{:.10g}'.format(v) for v in grid]
+
+    if len(grid) != len(contour):
+        raise ValueError('{} seuils pour {} lignes dans {}'.format(
+            len(grid), len(contour), args.output
+        ))
 
     print('=' * 78)
     print('Seuil de decision -- {}'.format(os.path.basename(args.output)))
@@ -106,28 +120,35 @@ def main():
             t, contour[i, 0], contour[i, 1], contour[i, 2], p[i], r[i], f1[i], bias[i]
         ))
 
-    half = labels.index('0.5')
+    # Une grille personnalisee n'a aucune raison de contenir 0.5 : la ligne
+    # « defaut actuel de walonmap.py » n'a alors rien a montrer, et le repli
+    # de fin de script non plus.
+    half = labels.index('0.5') if '0.5' in labels else None
     best = int(np.argmax(f1))
 
     # Le seuil le moins biaise en surface, parmi ceux qui detectent encore
     # quelque chose : a rappel nul le biais n'a plus d'objet.
     usable = np.where(r > 0.1, np.abs(bias - 1), np.inf)
-    fair = int(np.nanargmin(usable)) if np.isfinite(usable).any() else half
+    fallback = half if half is not None else best
+    fair = int(np.nanargmin(usable)) if np.isfinite(usable).any() else fallback
+
+    lecture = [('F1 de detection maximal', best), ('surface la moins biaisee', fair)]
+
+    if half is not None:
+        lecture.insert(0, ('defaut actuel de walonmap.py', half))
 
     print()
     print('Lecture')
     print('-------')
     print('{:<34}{:>10}{:>10}{:>10}{:>10}'.format('', 'seuil', 'rappel', 'F1', 'surface'))
-    for name, i in [
-        ('defaut actuel de walonmap.py', half),
-        ('F1 de detection maximal', best),
-        ('surface la moins biaisee', fair),
-    ]:
+    for name, i in lecture:
         print('{:<34}{:>10}{:10.4f}{:10.4f}{:10.3f}'.format(name, labels[i], r[i], f1[i], bias[i]))
 
     print()
 
-    if best == half:
+    if half is None:
+        print('Grille personnalisee : 0.5 n\'y figure pas, pas de comparaison au defaut.')
+    elif best == half:
         print('Le defaut 0.5 est deja le meilleur compromis de detection : rien a changer.')
     else:
         print('Passer de 0.5 a {} rend {:+.1f} points de rappel et {:+.1f} points de F1,'.format(
@@ -139,13 +160,16 @@ def main():
     # 1 ne retient rien. Si le F1 y culmine, c'est que la courbe est plate ou
     # que le jeu est trop petit -- on retombe sur le defaut plutot que de
     # proposer une absurdite.
-    retained = half if labels[best] in ('0', '1') else best
+    if labels[best] in ('0', '1'):
+        retained = fallback
+    else:
+        retained = best
 
     print()
     # .10g et pas .g : 1-1e-7 s'affiche sinon « 1 », soit le seuil qui ne
     # retient rien -- l'inverse de ce qu'on vient de conclure.
     print("walonmap.py -threshold {:.10g}   (soit {}, a confirmer par un coup d'oeil aux tuiles)".format(
-        values()[retained], labels[retained]
+        grid[retained], labels[retained]
     ))
 
     return 0

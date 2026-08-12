@@ -81,6 +81,27 @@ def parse_output(path):
     return arrays
 
 
+def parse_thresholds(path):
+    '''Les seuils reellement utilises, ou None si la sortie ne les porte pas.
+
+    evaluate.py ne les ecrit que depuis l'ajout de son option -thresholds.
+    Une sortie anterieure rend None, a charge pour l'appelant de retomber sur
+    la grille par decades -- c'est bien celle qui l'a produite.
+    '''
+    with open(path, 'r') as f:
+        text = f.read()
+
+    i = text.rfind('Thresholds =')
+
+    if i < 0:
+        return None
+
+    start = text.index('[', i)
+    end = text.index(']', start) + 1
+
+    return [float(x) for x in ast.literal_eval(text[start:end])]
+
+
 def parse_reference(model, fold, path=HARDCODED):
     '''Extrait les matrices du rapport, sans executer le module.'''
     with open(path, 'r') as f:
