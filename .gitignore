@@ -21,3 +21,8 @@ python/*.csv
 # as-is on GitHub ; only the generated HTML is disposable.
 
 docs/manual/_build/
+
+# Machine- and account-specific notes: cluster, partitions, local paths,
+# archive locations. The template LOCAL.example.md IS versioned.
+
+LOCAL.md

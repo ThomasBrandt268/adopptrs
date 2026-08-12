@@ -49,9 +49,13 @@ limitations
 scaling
 ```
 
-## Pages still to write
+```{toctree}
+:caption: Handover
+:maxdepth: 2
 
-*Handover* — `setup` (environment, cluster, where the data lives),
-`pipeline` (orthophoto to CSV, script by script), `training` (retrain,
-calibrate, measure), `interface` (the CSV contract with `wallonia_grid`),
-`api` (autodoc, as an appendix).
+setup
+pipeline
+training
+interface
+api
+```

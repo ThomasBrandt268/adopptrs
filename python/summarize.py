@@ -3,38 +3,37 @@
 """
 Summarizing WalOnMap VIA files
 
-Azimut
-------
-La direction visee par une installation est celle de la pente du toit.
-Les rangees de panneaux suivent le faitage, la pente descend
-perpendiculairement : vue du ciel, la direction cherchee est donc celle
-du PETIT cote du rectangle englobant. La projection verticale raccourcit
-encore ce cote (d'un facteur cos(inclinaison)), ce qui va dans le meme
-sens.
+Azimuth
+-------
+The direction an installation faces is that of the roof slope. Panel rows
+follow the ridge and the slope descends perpendicular to it: seen from
+above, the direction sought is therefore that of the SHORT side of the
+bounding rectangle. Vertical projection shortens that side further (by a
+factor cos(tilt)), which works in the same direction.
 
-La version d'origine ne gardait de `cv2.minAreaRect` que son `angle`, en
-jetant le couple `(w, h)`. Or cet angle ne dit pas lequel des deux cotes
-il decrit : l'orientation n'etait donc connue que modulo 90 degres, et la
-formule de repli `180 + angle if angle > -45 else 270 + angle` tassait
-toute la colonne dans une bande de 90 degres autour du sud -- mesure sur
-les 1043 polygones annotes de Liege : [135,9 ; 225,0]. Conserver `(w, h)`
-leve l'ambiguite.
+The original version kept only the `angle` from `cv2.minAreaRect`,
+discarding the `(w, h)` pair. That angle does not say which of the two
+sides it describes, so the orientation was known only modulo 90 degrees,
+and the fallback formula `180 + angle if angle > -45 else 270 + angle`
+crushed the whole column into a 90-degree band around south -- measured
+over the 1043 annotated polygons of Liege: [135.9 ; 225.0]. Keeping
+`(w, h)` resolves the ambiguity.
 
-Restent deux limites, irreductibles a partir d'une seule vue nadir :
+Two limits remain, irreducible from a single nadir view:
 
-  - un rectangle ne distingue pas une pente de son opposee (l'azimut est
-    connu modulo 180 degres). On retient celle qui regarde le sud, ce qui
-    est le bon pari sous nos latitudes mais se trompe sur les rares
-    installations orientees au nord ;
-  - sur une installation quasi carree, le petit cote n'est pas defini de
-    facon significative. L'option -diagnostics ajoute une colonne
-    d'elongation (grand cote / petit cote) qui permet de reperer -- et
-    d'ecarter -- ces cas en aval. Mesure sur les memes annotations :
-    elongation mediane 2,46, superieure a 1,2 pour 91 % des installations.
+  - a rectangle cannot tell a slope from its opposite (the azimuth is
+    known modulo 180 degrees). The south-facing one is retained, which is
+    the right bet at our latitudes but wrong for the rare north-facing
+    installations;
+  - on a near-square installation the short side is not meaningfully
+    defined. The -diagnostics option adds an elongation column (long side
+    / short side) which lets such cases be spotted -- and discarded --
+    downstream. Measured on the same annotations: median elongation 2.46,
+    above 1.2 for 91 % of installations.
 
-Le CSV par defaut garde exactement ses quatre colonnes d'origine
-(latitude, longitude, area, azimuth) : `wallonia_grid` les valide a
-l'identique et refuse le fichier a la moindre colonne supplementaire.
+The default CSV keeps exactly its four original columns (latitude,
+longitude, area, azimuth): `wallonia_grid` validates them as such and
+rejects the file if a single extra column appears.
 """
 
 ###########

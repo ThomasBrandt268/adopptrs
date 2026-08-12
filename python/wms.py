@@ -1,24 +1,24 @@
 """
-Remplacement WMS de la classe WMTS d'ADOPPTRS.
+WMS replacement for the WMTS class of ADOPPTRS.
 
-Contexte
---------
-Le geoportail wallon a retire l'extension WMTS de ses services ORTHO
-(verifie sur les millesimes 2018 a 2024 : supportedExtensions = WMSServer
-uniquement, tileInfo absent, GetCapabilities WMTS -> HTTP 400).
+Background
+----------
+The Walloon geoportal withdrew the WMTS extension from its ORTHO services
+(verified across the 2018 to 2024 vintages: supportedExtensions = WMSServer
+only, tileInfo absent, WMTS GetCapabilities -> HTTP 400).
 
-wmts.py lisait toute sa geometrie depuis le document GetCapabilities au
-moment de la construction de l'objet. Comme cet endpoint est mort, la
-classe ne peut plus etre instanciee du tout -- pas seulement get_tile().
+wmts.py read all of its geometry from the GetCapabilities document at
+construction time. Since that endpoint is dead, the class can no longer be
+instantiated at all -- not merely get_tile().
 
-Ce module fige donc les constantes du TileMatrix "15" du TileMatrixSet
-"default028mm" (relevees sur un instantane archive des capabilities) et
-reimplemente la recuperation d'image via GetMap WMS, en conservant
-exactement la meme interface publique que WMTS.
+This module therefore freezes the constants of TileMatrix "15" from the
+"default028mm" TileMatrixSet (read off an archived snapshot of the
+capabilities) and reimplements image retrieval through WMS GetMap, keeping
+exactly the same public interface as WMTS.
 
-Constantes du niveau 15
------------------------
-    CRS              EPSG:31370 (Lambert 72 belge, unites en metres)
+Level 15 constants
+------------------
+    CRS              EPSG:31370 (Belgian Lambert 72, metres)
     ScaleDenominator 472.4711830375448
     TopLeftCorner    -35872700.0 ; 41422700.0
     TileWidth        512
@@ -31,18 +31,18 @@ Constantes du niveau 15
 
 Usage
 -----
-Dans walonmap.py et misc/download.py, remplacer
+In walonmap.py and misc/download.py, replace
 
     from wmts import WMTS
     _WALONMAP = WMTS(wmts='...', layer='...', tms='default028mm', tm='15')
 
-par
+with
 
     from wms import WMS
     _WALONMAP = WMS()
 
-Le reste du code (tile_to_xy, xy_to_tile, wgs_to_tile, get_tile,
-tile_width, tile_height, ...) est inchange.
+The rest of the code (tile_to_xy, xy_to_tile, wgs_to_tile, get_tile,
+tile_width, tile_height, ...) is unchanged.
 """
 
 import io

@@ -13,6 +13,14 @@ already serves the Mapbox detection map at docs/index.html -- do not
 build into docs/ itself.
 """
 
+import os
+import sys
+
+# autodoc imports the modules for real, so python/ must be importable.
+# If torch or opencv are missing, only the api page comes out empty --
+# the rest of the documentation builds regardless.
+sys.path.insert(0, os.path.abspath('../../python'))
+
 project = 'ADOPPTRS'
 author = 'Thomas Brandt'
 copyright = '2026, Thomas Brandt -- fork of the project by Francois Rozet'

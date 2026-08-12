@@ -23,8 +23,8 @@ If you wish to run the scripts or the [Jupyter](https://jupyter.org/) notebook(s
 To do so safely, one should create a new environment :
 
 ```bash
-python3 -m venv ~/adopptrs
-source ~/adopptrs/bin/activate
+python3 -m venv ~/adopptrs-venv
+source ~/adopptrs-venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -52,11 +52,11 @@ Le choix de la roue `torch` est contraint par le GPU : PyTorch ne compile plus t
 | `cu128` / `cu129` | 7.5 ; 8.0 ; 8.6 ; 9.0 ; 10.0 ; 12.0 | Turing et plus récent |
 | `cu13x` | Turing et plus récent | Turing et plus récent |
 
-Sur le cluster [Alan](https://github.com/montefiore-institute/alan-cluster) de l'ULiège, **seule la build `cu126` couvre l'ensemble des partitions** :
+Choisir la build qui couvre **toutes** les architectures GPU visées, puis l'installer avant le reste :
 
 ```bash
 # 1. torch et torchvision depuis l'index PyTorch, qui seul distribue les roues CUDA
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+pip install torch torchvision --index-url https://download.pytorch.org/whl/<build>
 
 # 2. le reste depuis PyPI ; torch est déjà satisfait, pip ne le réinstalle pas
 pip install -r requirements.txt
@@ -68,32 +68,20 @@ cd python && python tests/smoke.py --no-data
 > L'ordre importe : `--index-url` **remplace** PyPI au lieu de s'y ajouter, et l'index PyTorch ne distribue ni `opencv-python`, ni `pyproj`, ni `matplotlib`. Les deux commandes doivent donc rester séparées.
 >
 > À l'étape 3, `tests/smoke.py` compare la *compute capability* du GPU à `torch.cuda.get_arch_list()`, puis force un calcul réel pour lever l'erreur au bon endroit plutôt qu'au milieu d'un job.
+>
+> Attention à la compatibilité binaire de CUDA : une roue peut ne pas contenir le noyau exact d'une carte tout en la faisant fonctionner, via une révision mineure inférieure de la même génération. Une comparaison naïve entre `get_arch_list()` et la *compute capability* conclurait à tort à une incompatibilité ; `tests/smoke.py` en tient compte.
 
-##### Partitions d'Alan (relevé du 2026-08-10)
+Le relevé des partitions d'un cluster donné, la build vérifiée sur chacune et les chemins de données n'ont rien à faire ici : ils dépendent de la machine. Les consigner dans un `LOCAL.md` (gitignoré, cf. [`LOCAL.example.md`](LOCAL.example.md)).
 
-La [documentation d'Alan](https://github.com/montefiore-institute/alan-cluster) n'a pas été mise à jour depuis juillet 2023 et ne décrit plus l'état réel du cluster. Relevé par `sinfo -s` :
-
-| Partition | GPU | Arch | Nœuds | Roue `cu126` |
-| --- | --- | --- | --- | --- |
-| `a5000` | RTX A5000, 24 Go | `sm_86` | compute-[05,14-15] | ✔️ vérifié |
-| `tesla` | Tesla V100 | `sm_70` | compute-13 | ✔️ |
-| `quadro` | Quadro RTX 6000 | `sm_75` | compute-[11-12] | ✔️ |
-| `2080ti` | RTX 2080 Ti, 11 Go | `sm_75` | compute-[06-10] | ✔️ |
-| `1080ti` | GTX 1080 Ti, 11 Go | `sm_61` | compute-[01-04] | ✔️ par compatibilité binaire |
-
-Deux écarts avec la documentation : la partition `debug` a disparu, et la partition **`a5000` n'y figure pas** alors que c'est le meilleur matériel du parc (Ampere, 24 Go, Tensor Cores de 3ᵉ génération).
-
-Le cas `1080ti` mérite une note. La roue `cu126` ne contient pas de noyau `sm_61`, mais elle embarque `sm_60` : la compatibilité binaire de CUDA jouant vers les révisions mineures supérieures d'une même génération, ces cartes fonctionnent — vérifié sur `compute-01`. Une comparaison naïve entre `get_arch_list()` et la *compute capability* conclurait à tort à une incompatibilité ; `tests/smoke.py` en tient compte.
-
-Seule `1080ti` est dépourvue de *Tensor Cores* : les quatre autres partitions sont les seules à pouvoir tirer parti de la précision mixte (`torch.amp`), non implémentée à ce jour dans [`train.py`](python/train.py).
+La précision mixte (`torch.amp`) n'est pas implémentée dans [`train.py`](python/train.py), donc la présence de *Tensor Cores* ne change rien pour l'instant.
 
 ##### Soumettre un entraînement
 
-[`python/train.sbatch`](python/train.sbatch) encapsule l'appel à `train.py` pour SLURM.
+[`python/train.sbatch`](python/train.sbatch) encapsule l'appel à `train.py` pour SLURM. Dans ce qui suit, `$REPO` désigne la racine du dépôt.
 
 ```bash
-mkdir -p ~/adopptrs/products/logs   # une seule fois : sans ce dossier, SLURM refuse le job
-cd ~/adopptrs/python
+mkdir -p $REPO/products/logs   # une seule fois : sans ce dossier, SLURM refuse le job
+cd $REPO/python
 
 EPOCHS=1 sbatch train.sbatch        # essai court, pour mesurer le coût d'une époque
 K=5 FOLD=0 sbatch train.sbatch      # validation croisée, évaluable par evaluate.py
@@ -102,21 +90,21 @@ SCALE=2 sbatch --time=20:00:00 train.sbatch   # modèle de production (cf. §Rep
 
 `train.py` n'écrit un `.pth` qu'à la dernière époque de la plage demandée : un job interrompu à l'époque 19 sur 20 ne laisse rien. Le script l'appelle donc par tranches de `CHUNK` époques (5 par défaut) et repart automatiquement du dernier checkpoint trouvé — relancer la même commande après une interruption reprend où l'on s'était arrêté. Le surcoût d'une tranche est d'une vingtaine de secondes, négligeable devant le coût d'une époque.
 
-Suivi : `squeue --user $USER`, `tail -f ~/adopptrs/products/logs/<jobid>.log`, `sacct -j <jobid>` une fois terminé.
+Suivi : `squeue --user $USER`, `tail -f $REPO/products/logs/<jobid>.log`, `sacct -j <jobid>` une fois terminé.
 
 ##### Évaluer un modèle
 
 [`python/evaluate.sbatch`](python/evaluate.sbatch) évalue le fold laissé de côté par `K=5`, puis compare les chiffres obtenus à ceux du rapport.
 
 ```bash
-cd ~/adopptrs/python
+cd $REPO/python
 
 sbatch evaluate.sbatch                   # multiunet_0_020.pth sur le fold 0
 FOLD=1 sbatch evaluate.sbatch            # un autre fold
 EPOCH=10 sbatch evaluate.sbatch          # un checkpoint intermédiaire
 ```
 
-Un passage sans rétropropagation sur un cinquième du jeu : **2 min 45 s** mesurées sur A5000, l'essentiel étant du CPU (décodage TIFF, morphologie OpenCV sur 21 seuils). Quand `a5000` est prise, `sbatch --partition=1080ti evaluate.sbatch` ne coûte presque rien de plus.
+Un passage sans rétropropagation sur un cinquième du jeu : **2 min 45 s** mesurées sur un RTX A5000, l'essentiel étant du CPU (décodage TIFF, morphologie OpenCV sur 21 seuils). Une partition GPU moins récente ne coûte donc presque rien de plus.
 
 La sortie brute d'`evaluate.py` — deux matrices 21 × 5 — est enregistrée dans `products/eval/`, puis relue par [`misc/compare_report.py`](python/misc/compare_report.py), qui la met en regard des chiffres publiés :
 
@@ -217,7 +205,7 @@ python3 python/dataset.py --output products/json/california.json --path resource
 
 **`SegNet`/`MultiTaskSegNet` corrigé (2026-08-10)** — Le dernier bloc descendant double les canaux (256) sans `maxpool` correspondant, alors que `MaxUnpool2d` exige que l'entrée ait exactement autant de canaux que les indices sauvegardés (128) : d'où le `RuntimeError: Shape of indices should match shape of input`. Le correctif applique la convolution **avant** le désempilement plutôt qu'après, dans `SegNet.forward` — la convolution ramène alors les canaux au bon compte. Validé sur les profondeurs 1 à 3, en tailles paires et impaires (chemin `ceil_mode`), et sur `MultiTaskSegNet` en `train` comme en `eval`. Ce n'est pas le modèle retenu par le rapport ([`latex/main.pdf`](latex/main.pdf)) — *Multi-Task U-Net* reste utilisé pour WalOnMap — mais les quatre architectures sont désormais fonctionnelles.
 
-**État actuel** — Les 661 tuiles annotées de [`via_liege_city.json`](resources/walonmap/via_liege_city.json) se téléchargent en ~3 min 38 s via `misc/download.py`. Aucun modèle entraîné n'est republié dans ce fork (`products/` est gitignoré), mais l'entraînement est désormais opérationnel sur le cluster Alan (cf. §Cluster GPU).
+**État actuel** — Les 661 tuiles annotées de [`via_liege_city.json`](resources/walonmap/via_liege_city.json) se téléchargent en ~3 min 38 s via `misc/download.py`. Aucun modèle entraîné n'est republié dans ce fork (`products/` est gitignoré), mais l'entraînement est désormais opérationnel sur GPU (cf. §Cluster GPU).
 
 Mesures de référence pour `MultiTaskUNet` sur le jeu californien complet, à l'échelle 1 :
 
@@ -230,7 +218,7 @@ Mesures de référence pour `MultiTaskUNet` sur le jeu californien complet, à l
 | Pic mémoire vive | 6,6 Go |
 | Taille d'un checkpoint | 120 Mo |
 
-L'écart entre les deux cartes est modeste parce que `train.py` calcule en FP32 — les *Tensor Cores* de l'A5000 restent inutilisés — et surtout parce que le `DataLoader` est instancié sans `num_workers` : le décodage des TIFF occupe un seul cœur pendant que le GPU attend. Quand `a5000` est saturée, prendre un `1080ti` libre est donc souvent plus rapide que d'attendre.
+L'écart entre les deux cartes est modeste parce que `train.py` calcule en FP32 — les *Tensor Cores* de l'A5000 restent inutilisés — et surtout parce que le `DataLoader` est instancié sans `num_workers` : le décodage des TIFF occupe un seul cœur pendant que le GPU attend. Quand la partition la plus rapide est saturée, prendre une carte plus ancienne mais libre est donc souvent plus rapide que d'attendre son tour.
 
 Soit environ **3 h 45 pour 20 époques** sur A5000. À l'échelle 2 (celle du modèle de production), chaque crop passe de 256 à 512 pixels : compter environ 4× ce coût, d'où le `--time=20:00:00` recommandé.
 
@@ -240,7 +228,7 @@ Soit environ **3 h 45 pour 20 époques** sur A5000. À l'échelle 2 (celle du mo
 
 Étape en cours : reproduire l'évaluation du rapport (`K=5 FOLD=0`, puis `evaluate.py` sur le fold 0). Comparer ces chiffres à ceux de [`latex/main.pdf`](latex/main.pdf) est le seul contrôle qui vérifie que le passage à `torch` 2.x / NumPy 2.x / OpenCV 5 n'a rien altéré numériquement — `tests/smoke.py` prouve que le code s'exécute, pas qu'il apprend aussi bien. Vient ensuite le modèle de production (`SCALE=2`, `-k 0`), puis le fine-tuning sur Liège.
 
-**Reproduction confirmée (2026-08-10)** — Entraînement job `3896799` (`1080ti`, 20 époques en 4 h 44, perte finale 0,347), évaluation job `3896887` (`a5000`, 2 min 45 s). Fold 0, *Multi-Task U-Net* :
+**Reproduction confirmée (2026-08-10)** — Entraînement sur GTX 1080 Ti (20 époques en 4 h 44, perte finale 0,347), évaluation sur RTX A5000 (2 min 45 s). Fold 0, *Multi-Task U-Net* :
 
 | | rapport | reproduction |
 | --- | --- | --- |
