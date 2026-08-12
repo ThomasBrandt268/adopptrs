@@ -67,6 +67,13 @@ SPECIAL=${SPECIAL:-0}
 # aucune augmentation de couleur.
 HUE=${HUE:-0}
 
+# VIA supplementaire verse entierement a l'entrainement, jamais a la
+# validation : c'est ainsi que le fold 0 reste les memes 133 tuiles et que
+# les mesures restent comparables. Les tuiles doivent etre telechargees
+# dans $DATA, sinon VIADataset les ecarte en silence (train.py previent).
+#     NEGATIFS=$HOME/adopptrs/resources/walonmap/via_negatifs.json
+NEGATIFS=${NEGATIFS:-}
+
 # K=0  : entrainement sur la totalite du jeu (modele de production, celui
 #        applique a WalOnMap). evaluate.py n'a alors aucun jeu de validation.
 # K=5  : validation croisee, le fold FOLD est mis de cote pour evaluate.py.
@@ -96,6 +103,9 @@ CSV=$HOME/adopptrs/products/csv/$NAME.csv
 EXTRA=()
 if (( SPECIAL )); then
     EXTRA+=(-special)
+fi
+if [[ -n $NEGATIFS ]]; then
+    EXTRA+=(-negatives "$NEGATIFS")
 fi
 
 ################

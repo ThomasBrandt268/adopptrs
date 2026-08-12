@@ -87,6 +87,7 @@ if __name__ == '__main__':
     # la teinte au lieu de tirer un facteur nul, donc meme consommation
     # d'aleatoire et resultats comparables a l'identique.
     parser.add_argument('-hue', type=float, default=0., help='hue jitter (0 = comme avant)')
+    parser.add_argument('-negatives', default=None, help='VIA supplementaire, verse entierement a l\'entrainement')
     args = parser.parse_args()
 
     # Output file
@@ -109,6 +110,30 @@ if __name__ == '__main__':
         train_via = {key: via[key] for i, key in enumerate(keys) if (i % args.k) != args.fold}
     else:
         train_via = via
+
+    # Les negatifs sont verses APRES le decoupage, et depuis un fichier a
+    # part : le fold se calcule sur les cles triees puis melangees, donc les
+    # glisser dans le VIA principal redistribuerait le fold 0 et ferait
+    # perdre l'etalon auquel toutes les mesures se comparent. Ici ils vont
+    # entierement a l'entrainement et ne touchent pas la validation.
+    if args.negatives is not None:
+        extra = VIA.load(args.negatives)
+
+        # VIADataset ecarte en silence les tuiles absentes du dossier -p, et
+        # il n'en connait qu'un seul : des negatifs telecharges ailleurs
+        # donneraient un entrainement identique, sans le moindre message.
+        missing = [k for k in extra if not os.path.exists(os.path.join(args.path, k))]
+
+        if missing:
+            print('ATTENTION : {}/{} tuiles negatives introuvables dans {}'.format(
+                len(missing), len(extra), args.path
+            ))
+            print('            elles seront ignorees ; les telecharger dans ce dossier')
+
+        train_via = dict(train_via)
+        train_via.update(extra)
+
+        print('Negatifs : {} tuiles ajoutees a l\'entrainement'.format(len(extra) - len(missing)))
 
     if args.special:
         trainset = VIADataset(train_via, args.path, shuffle=True, size=None)
