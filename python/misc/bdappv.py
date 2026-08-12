@@ -7,6 +7,22 @@ BDAPPV livre des images et des masques raster ; notre chaine veut des
 polygones au format VIA et des images a notre resolution. Ce script fait
 les deux, campagne par campagne.
 
+Source
+------
+Zenodo 7358126 -- https://zenodo.org/record/7358126 (CC-BY-4.0).
+
+La licence du jeu ne couvre pas le contenu des images : les vues Google
+restent soumises aux conditions de Google, celles de l'IGN sont sous
+Licence Ouverte 2.0. C'est l'arbitrage que --campaign laisse a l'appelant,
+cf. Resolution ci-dessous.
+
+Structure attendue sous --source : {google,ign}/{img,mask}/*.png en
+400x400, plus metadata.csv. La cle de jointure vers les fichiers est la
+colonne `identifiant`, PAS `idInstallation`. Dans la colonne
+`departement`, les codes 2xx sont les provinces belges (206 Liege,
+205 Hainaut, 209 Namur, 202 Brabant wallon, 208 Luxembourg,
+210 Bruxelles) ; les 3xx sont britanniques, les 10x suisses.
+
 Resolution
 ----------
 Le reseau doit voir les panneaux a la taille qu'ils auront en production,
@@ -48,6 +64,18 @@ Usage
         --campaign google \\
         -d /scratch/users/$USER/bdappv/google_0132 \\
         -o ../products/json/bdappv_google.json
+
+    # LA commande qui a reellement produit les donnees d'entrainement de
+    # multiunet_bdw puis multiunet_bdwl (1914 fichiers), le 2026-08-11 :
+    python misc/bdappv.py --source /scratch/users/$USER/bdappv/bdappv \\
+        --campaign google --region wallonie \\
+        -d /scratch/users/$USER/bdappv/wallonie_0132 \\
+        -o ../products/json/bdappv_wallonie.json
+
+Sa sortie vit sur /scratch, qui n'est pas persistant, et le VIA produit
+tombe sous products/ qui est gitignore : ni l'un ni l'autre ne survit au
+depot. C'est cette commande-ci qui les regenere -- elle est la seule trace
+de ce dont depend multiunet_bdwl_040, le modele de meilleur rappel.
 """
 
 import argparse
