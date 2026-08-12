@@ -89,7 +89,16 @@ if __name__ == '__main__':
     parser.add_argument('-o', '--output', default='../products/json/walonmap.json', help='output VIA file')
     parser.add_argument('-p', '--polygon', required=True, help='GeoJSON polygon file')
     parser.add_argument('-t', '--tile', default='', help='tile prefix name')
-    parser.add_argument('-threshold', type=float, default=.5, help='threshold')
+    # 0.5 supposait un reseau dont les sorties s'etalent entre 0 et 1. Celui-ci
+    # est polarise : il ecrase ses probabilites tout pres de 0 ou de 1, et
+    # l'arbitrage se joue dans les tres petites valeurs. Le defaut 0.5 coutait
+    # 28 points de rappel -- il ne retenait que les pixels absolument certains.
+    #
+    # 5e-5 est l'optimum mesure de multiunet_liege_030 le 2026-08-12
+    # (F1 0,840). Il ne se transporte PAS d'un reseau a l'autre : celui du
+    # modele a variation de teinte tombe a 3e-5. Recalibrer par modele avec
+    # calibrate.sbatch, d'ou l'avertissement affiche au lancement.
+    parser.add_argument('-threshold', type=float, default=5e-5, help='decision threshold (recalibrate per model, see calibrate.sbatch)')
     parser.add_argument('-min', type=int, default=256, help='minimal number of pixels')
     parser.add_argument('-vintage', default=None, help='millesime, ex. ORTHO_2022_ETE (defaut ORTHO_2018)')
     parser.add_argument('-delay', type=float, default=.2,
@@ -113,6 +122,13 @@ if __name__ == '__main__':
     contour = Contour(contour)
 
     print('{} tiles in region'.format(len(contour)))
+
+    # Le seuil est le reglage le plus couteux a se tromper, et le moins
+    # visible : une valeur trop haute ne provoque aucune erreur, elle rend
+    # simplement un CSV ampute. On l'affiche donc systematiquement.
+    print('threshold {:g} | -min {} -- both are per-model, recalibrate with calibrate.sbatch'.format(
+        args.threshold, args.min
+    ))
 
     # Model
     if args.model == 'unet':
