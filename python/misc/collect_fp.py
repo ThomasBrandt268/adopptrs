@@ -27,10 +27,9 @@ separe. D'ou ces vignettes.
 
 Ouverture morphologique
 -----------------------
-Le defaut est ici l'INVERSE de check_predictions.py : pas d'ouverture,
-parce que c'est la chaine que walonmap.py execute et sur laquelle le
-seuil a ete calibre. Collecter avec l'ouverture donnerait des faux
-positifs que la production ne produit pas.
+Pas d'ouverture par defaut, contrairement a check_predictions.py : on
+collecte la chaine que walonmap.py execute vraiment. L'ecart entre les
+deux chaines est explique dans evaluate.py.
 
 Usage
 -----

@@ -69,10 +69,8 @@ def parse_name(imagename):
 def predict(model, image, device, threshold, opening):
     """Rend le masque binaire du reseau, dans l'etat ou les contours en sortent.
 
-    L'ouverture morphologique est optionnelle parce que les deux chaines du
-    depot divergent ici : evaluate.py l'applique, walonmap.py non. Le seuil
-    a ete calibre avec, la production tournerait sans -- pouvoir basculer
-    d'un mode a l'autre est le seul moyen de voir ce que cet ecart change.
+    L'ouverture est optionnelle pour pouvoir regarder les deux chaines du
+    depot, qui divergent ici -- l'ecart est explique dans evaluate.py.
     """
     with torch.no_grad():
         inpt = to_tensor(image).unsqueeze(0).to(device)
